@@ -14,8 +14,8 @@
 
 ## Detalhes do que será implementado
 
-- **Título do trabalho**: <mark>`Exit 4`</mark>
-- **Parágrafo curto descrevendo o que será implementado**: <mark>`Vamos implementar uma versão um pouco simplificada do jogo Exit 8. Nesse jogo, controlamos um personagem que percorre várias vezes o mesmo corredor, tendo que identificar anomalias para decidir se segue em frente ou volta atrás, com o objetivo de percorre-lo 8 vezes, chegando na estação 8. Em nossa versão, diminuiremos para a estação 4, e implementaremos um número menor de anomalias.`</mark>
+- **Título do trabalho**: <mark>`Exit 8`</mark>
+- **Parágrafo curto descrevendo o que será implementado**: <mark>`Vamos implementar uma versão um pouco simplificada do jogo Exit 8. Nesse jogo, controlamos um personagem que percorre várias vezes o mesmo corredor, tendo que identificar anomalias para decidir se segue em frente ou volta atrás, com o objetivo de percorre-lo 8 vezes, chegando na estação 8. Em nossa versão implementaremos somente algumas das anomalias presentes no jogo original`</mark>
 
 ## Especificação visual
 
@@ -34,7 +34,7 @@
 >   do próprio repositório. Mas, garanta que qualquer um tenha
 >   permissão de acesso ao vídeo através deste link.
 
-<mark>`<preencher>`</mark>
+<mark>`https://www.youtube.com/watch?v=NCEw6WJkuFs`</mark>
 
 ### Vídeo - Timestamp
 
@@ -43,8 +43,8 @@
 >   será a base de comparação para avaliar se o seu trabalho final
 >   conseguiu ou não reproduzir a referência.
 
-- **Timestamp inicial**: <mark>`<preencher>`</mark>
-- **Timestamp final**: <mark>`<preencher>`</mark>
+- **Timestamp inicial**: <mark>`1:19`</mark>
+- **Timestamp final**: <mark>`1:49`</mark>
 
 ### Imagens
 
@@ -52,7 +52,9 @@
 > - Coloquei aqui **três imagens** capturadas do vídeo acima, que você
 >   irá usar como ilustração para as explicações que vêm abaixo.
 
-<mark>`<preencher>`</mark>
+<mark>`![Chão normal](images/chao_normal.png)`</mark>
+<mark>`![Chão anômalo](images/chao_anomalo.png)`</mark>
+<mark>`![Corredor do jogo](images/corredor.png)`</mark>
 
 ## Especificação textual
 
@@ -98,16 +100,21 @@ Para cada um dos requisitos abaixo (detalhados no [Enunciado do Trabalho final -
 > - Para cada item, **explique por que** não será implementado ou por
 >   que será implementado parcialmente.
 
-<mark>`IA complexa de NPCs não será implementada
-O comportamento de personagens será limitado, com movimentos simples.
+<mark>IA complexa de NPCs não será implementada: <br>
+O comportamento de personagens será limitado, com movimentos simples.<br>
+A versão implementada terá apenas um subconjunto de anomalias (somente a primeira aparece no vídeo)</mark> 
+1. Chão modificado, comparação pode ser vista nas duas imagens do chão, sendo o chão anômalo o que contém o padrão mais complexo;
+2. Diversas placas de No Smoking ao invés de somente uma;
+3. Homem caminhando pelo corredor tem estatura muito maior que o padrão;
+4. Somente duas portas ao invés de 3;
+5. Posters idênticos na parede;
+6. Foto assustadora no lugar de um dos posters.
+7. Homem camuflado com a textura da parede no fim do corredor, ao se deparar com ele ele persegue o jogador.
+8. Som de batidas na porta
 
-Sistema completo de detecção de todas as anomalias do jogo original
-A versão implementada terá apenas um subconjunto de anomalias.
-
-Qualidade gráfica AAA não será atingida
-Shaders avançados não serão implementados devido à complexidade.
-
-Sistema de áudio será simplificado.
-
+<mark>Essa limitação no número de anomalias se deve a extensa quantidade e complexidade.<br>
+Qualidade gráfica AAA não será atingida:<br>
+Shaders avançados não serão implementados devido à complexidade.<br>
+Sistema de áudio será simplificado:<br>
 Som ambiente e efeitos não serão foco principal.
-`</mark>
+</mark>
