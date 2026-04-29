@@ -52,9 +52,14 @@
 > - Coloquei aqui **três imagens** capturadas do vídeo acima, que você
 >   irá usar como ilustração para as explicações que vêm abaixo.
 
-<mark>`![Chão normal](images/chao_normal.png)`</mark>
-<mark>`![Chão anômalo](images/chao_anomalo.png)`</mark>
-<mark>`![Corredor do jogo](images/corredor.png)`</mark>
+![Chão normal](images/chao_normal.png)
+*Figura 1: Chão normal*
+
+![Chão anômalo](images/chao_anomalo.png)
+*Figura 2: Chão anômalo*
+
+![Corredor do jogo](images/corredor.png)
+*Figura 3: Corredor do jogo*
 
 ## Especificação textual
 
