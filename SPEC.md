@@ -75,6 +75,8 @@ Para cada um dos requisitos abaixo (detalhados no [Enunciado do Trabalho final -
 ### Transformações geométricas controladas pelo usuário
 <mark>`O usuário controlará uma câmera em primeira pessoa com movimentação via teclado (WASD) e rotação via mouse. Isso permitirá explorar o corredor livremente, como visto no vídeo, incluindo olhar ao redor para identificar anomalias.`</mark>
 
+> Comentário Professor: Conforme especificação no Moodle, é necessário ter algum outro tipo de objeto sendo controlado pelo usuário, além da câmera.
+
 ### Diferentes tipos de câmeras
 <mark>`Serão implementadas duas opções de câmera, uma em primeira pessoa e outra câmera de visão em terceira pessoa. Diferentemente do jogo original, no qual há apenas a opção de primeira pessoa, em nossa implementação o usuário poderá escolher entre as duas. `</mark>
 
@@ -84,8 +86,12 @@ Para cada um dos requisitos abaixo (detalhados no [Enunciado do Trabalho final -
 ### Testes de intersecção
 <mark>`Serão implementados testes de colisão entre o jogador (câmera) e o ambiente, impedindo atravessar paredes e objetos. Também haverá gatilhos invisíveis para detectar progresso no corredor ou reset de estado.`</mark>
 
+> Comentário Professor: a câmera em terceira pessoa também será "contida" dentro das paredes?
+
 ### Modelos de Iluminação em todos os objetos
 <mark>`Será aplicado modelo de iluminação Phong com fontes de luz posicionadas no teto, simulando lâmpadas. A iluminação será essencial para criar o clima do jogo, como mostrado nas imagens.`</mark>
+
+> Comentário Professor: a reflexão das lâmpadas nas paredes, de forma Glossy, é um visual interessante do jogo. Não tentarão fazer?
 
 ### Mapeamento de texturas em todos os objetos
 <mark>`Texturas serão aplicadas em paredes, chão, placas e portas, incluindo padrões repetitivos típicos de metrôs.`</mark>
