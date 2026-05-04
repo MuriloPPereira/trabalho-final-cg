@@ -73,7 +73,7 @@ Para cada um dos requisitos abaixo (detalhados no [Enunciado do Trabalho final -
 <mark>`Esse requisito será atendido pois nosso trabalho usará malhas complexas para representar todos os elementos do corredor, como paredes, tetos, quadros nas paredes, portas, luminária, além dos npcs e anomalias eventualmente encontradas, conforme observado nas imagens. `</mark>
 
 ### Transformações geométricas controladas pelo usuário
-<mark>`O usuário controlará uma câmera em primeira pessoa com movimentação via teclado (WASD) e rotação via mouse. Isso permitirá explorar o corredor livremente, como visto no vídeo, incluindo olhar ao redor para identificar anomalias.`</mark>
+<mark>`O usuário controlará uma câmera em primeira pessoa com movimentação via teclado (WASD) e rotação via mouse. Isso permitirá explorar o corredor livremente, como visto no vídeo, incluindo olhar ao redor para identificar anomalias. Além disso, em terceira pessoa o personagem se tornará um objeto controlável.`</mark>
 
 > Comentário Professor: Conforme especificação no Moodle, é necessário ter algum outro tipo de objeto sendo controlado pelo usuário, além da câmera.
 
@@ -84,12 +84,12 @@ Para cada um dos requisitos abaixo (detalhados no [Enunciado do Trabalho final -
 <mark>`Elementos repetidos como luzes, portas e placas serão implementados via instanciamento de objetos, reduzindo custo computacional. Isso reflete a repetição clara do corredor ao longo do vídeo.`</mark>
 
 ### Testes de intersecção
-<mark>`Serão implementados testes de colisão entre o jogador (câmera) e o ambiente, impedindo atravessar paredes e objetos. Também haverá gatilhos invisíveis para detectar progresso no corredor ou reset de estado.`</mark>
+<mark>`Serão implementados testes de colisão entre o jogador, câmera e o ambiente, impedindo o jogador ou a câmera de atravessar paredes e objetos. Também haverá gatilhos invisíveis para detectar progresso no corredor ou reset de estado.`</mark>
 
 > Comentário Professor: a câmera em terceira pessoa também será "contida" dentro das paredes?
 
 ### Modelos de Iluminação em todos os objetos
-<mark>`Será aplicado modelo de iluminação Phong com fontes de luz posicionadas no teto, simulando lâmpadas. A iluminação será essencial para criar o clima do jogo, como mostrado nas imagens.`</mark>
+<mark>`Será aplicado modelo de iluminação Phong com fontes de luz posicionadas no teto, simulando lâmpadas. A iluminação será essencial para criar o clima do jogo, como mostrado nas imagens. Além disso, a reflexão Glossy nas paredes também será implementada.`</mark>
 
 > Comentário Professor: a reflexão das lâmpadas nas paredes, de forma Glossy, é um visual interessante do jogo. Não tentarão fazer?
 
