@@ -40,6 +40,7 @@
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
 // Headers da biblioteca para carregar modelos obj
@@ -121,6 +122,7 @@ struct PointLight;
 // logo após a definição de main() neste arquivo.
 void BuildTrianglesAndAddToVirtualScene(ObjModel*); // Constrói representação de um ObjModel como malha de triângulos para renderização
 void BuildCorridorAndAddToVirtualScene(); // Constrói um corredor procedural simples (chão, teto e paredes)
+void BuildCornerAndAddToVirtualScene(); // Constrói duas quinas procedurais 4x4 (esquerda e direita)
 void BuildPostersAndAddToVirtualScene(); // Constrói quads para os posters na parede esquerda
 void ComputeNormals(ObjModel* model); // Computa normais de um ObjModel, caso não existam.
 void LoadShadersFromFiles(); // Carrega os shaders de vértice e fragmento, criando um programa de GPU
@@ -273,8 +275,10 @@ const float kCorridorHeight = 3.0f;
 const float kCorridorLength = 40.0f;
 const float kCorridorZ0 = 0.0f;
 const float kCorridorZ1 = -kCorridorLength;
+const float kCornerLength = 4.0f;
+const float kConnectorLength = 10.0f;
 const int kPosterCount = 4;
-const int kLampCount = 7;
+const int kLampCount = 12;
 const char* kPosterNames[kPosterCount] = {"poster_0", "poster_1", "poster_2", "poster_3"};
 
 // Número de texturas carregadas pela função LoadTextureImage()
@@ -364,6 +368,7 @@ int main(int argc, char* argv[])
     LoadTextureImage("poster4.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // 6
 
     BuildCorridorAndAddToVirtualScene();
+    BuildCornerAndAddToVirtualScene();
     BuildPostersAndAddToVirtualScene();
 
     const GLuint kWallTextureUnit = 0;
@@ -417,13 +422,19 @@ int main(int argc, char* argv[])
         poster_materials.push_back(poster_material);
     }
 
+    const float corridor2_offset_x = -(2.0f * kCorridorHalfWidth + kConnectorLength);
+    const float connector_center_z = kCorridorZ1 - 0.5f * kCornerLength;
+    // Procure por esta linha no main() e altere-a
+    const float second_corridor_z_offset = kCorridorZ1 - kCornerLength; // Fica exatamente em -44.0f
+
     std::vector<PointLight> corridor_lights;
     corridor_lights.reserve(kLampCount);
-    const float lamp_spacing = kCorridorLength / (kLampCount + 1);
-    for (int i = 0; i < kLampCount; ++i)
+
+    const float first_corridor_spacing = kCorridorLength / 5.0f;
+    for (int i = 0; i < 4; ++i)
     {
         PointLight light;
-        light.position = glm::vec3(0.0f, kCorridorHeight - 0.15f, -(i + 1) * lamp_spacing);
+        light.position = glm::vec3(0.0f, kCorridorHeight - 0.15f, -(i + 1) * first_corridor_spacing);
         light.color = glm::vec3(1.0f, 0.98f, 0.92f);
         light.ambient_strength = 0.03f;
         light.diffuse_strength = 1.0f;
@@ -431,6 +442,37 @@ int main(int argc, char* argv[])
         light.constant = 1.0f;
         light.linear = 0.14f;
         light.quadratic = 0.07f;
+        corridor_lights.push_back(light);
+    }
+
+    auto make_light = [&](const glm::vec3& position)
+    {
+        PointLight light;
+        light.position = position;
+        light.color = glm::vec3(1.0f, 0.98f, 0.92f);
+        light.ambient_strength = 0.03f;
+        light.diffuse_strength = 1.0f;
+        light.specular_strength = 1.0f;
+        light.constant = 1.0f;
+        light.linear = 0.14f;
+        light.quadratic = 0.07f;
+        return light;
+    };
+
+    // Canto esquerdo e canto direito.
+    corridor_lights.push_back(make_light(glm::vec3(0.0f, kCorridorHeight - 0.15f, connector_center_z)));
+    corridor_lights.push_back(make_light(glm::vec3(corridor2_offset_x, kCorridorHeight - 0.15f, connector_center_z)));
+
+    // Corredor conector curto.
+    corridor_lights.push_back(make_light(glm::vec3(-kCorridorHalfWidth - (kConnectorLength / 3.0f), kCorridorHeight - 0.15f, connector_center_z)));
+    corridor_lights.push_back(make_light(glm::vec3(-kCorridorHalfWidth - (2.0f * kConnectorLength / 3.0f), kCorridorHeight - 0.15f, connector_center_z)));
+
+    const float second_corridor_spacing = kCorridorLength / 5.0f;
+    for (int i = 0; i < 4; ++i)
+    {
+        PointLight light = make_light(glm::vec3(corridor2_offset_x,
+                                                kCorridorHeight - 0.15f,
+                                                second_corridor_z_offset - (i + 1) * second_corridor_spacing));
         corridor_lights.push_back(light);
     }
 
@@ -488,7 +530,7 @@ int main(int argc, char* argv[])
         // Note que, no sistema de coordenadas da câmera, os planos near e far
         // estão no sentido negativo! Veja slides 176-204 do documento Aula_09_Projecoes.pdf.
         float nearplane = -0.1f;  // Posição do "near plane"
-        float farplane  = -(kCorridorLength + 10.0f); // Posição do "far plane"
+        float farplane  = -(2.0f * kCorridorLength + 10.0f); // Posição do "far plane"
 
         if (g_UsePerspectiveProjection)
         {
@@ -521,24 +563,88 @@ int main(int argc, char* argv[])
         glUniform4f(g_camera_position_uniform, camera_position_c.x, camera_position_c.y, camera_position_c.z, camera_position_c.w);
         SetPointLights(corridor_lights);
 
-        model = Matrix_Identity();
-        glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
-
-        ApplyMaterial(floor_material);
-        DrawVirtualObject("corridor_floor");
-
-        ApplyMaterial(ceiling_material);
-        DrawVirtualObject("corridor_ceiling");
-
-        ApplyMaterial(wall_material);
-        DrawVirtualObject("corridor_wall_left");
-        DrawVirtualObject("corridor_wall_right");
-
-        for (int i = 0; i < kPosterCount; ++i)
+        auto draw_straight_corridor = [&](const glm::mat4& corridor_model,
+                                          bool draw_posters,
+                                          const Material& floor_mat,
+                                          const Material& ceiling_mat,
+                                          const Material& wall_mat)
         {
-            ApplyMaterial(poster_materials[i]);
-            DrawVirtualObject(kPosterNames[i]);
-        }
+            glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(corridor_model));
+
+            ApplyMaterial(floor_mat);
+            DrawVirtualObject("corridor_floor");
+
+            ApplyMaterial(ceiling_mat);
+            DrawVirtualObject("corridor_ceiling");
+
+            ApplyMaterial(wall_mat);
+            DrawVirtualObject("corridor_wall_left");
+            DrawVirtualObject("corridor_wall_right");
+
+            if (draw_posters)
+            {
+                for (int i = 0; i < kPosterCount; ++i)
+                {
+                    ApplyMaterial(poster_materials[i]);
+                    DrawVirtualObject(kPosterNames[i]);
+                }
+            }
+        };
+
+
+        // Materiais para o conector curto.
+        Material connector_floor_material = floor_material;
+        Material connector_ceiling_material = ceiling_material;
+        Material connector_wall_material = wall_material;
+        const float connector_uv_factor = kConnectorLength / kCorridorLength;
+        connector_floor_material.uv_scale.y *= connector_uv_factor;
+        connector_ceiling_material.uv_scale.y *= connector_uv_factor;
+        connector_wall_material.uv_scale.x *= connector_uv_factor;
+
+        // [NOVO] Materiais específicos para as Quinas (tamanho de 4x4)
+        Material corner_floor_material = floor_material;
+        Material corner_ceiling_material = ceiling_material;
+        Material corner_wall_material = wall_material;
+        
+        const float corner_uv_factor = kCornerLength / kCorridorLength; // 4.0 / 40.0 = 0.1
+        corner_floor_material.uv_scale.y *= corner_uv_factor;
+        corner_ceiling_material.uv_scale.y *= corner_uv_factor;
+        corner_wall_material.uv_scale.x *= corner_uv_factor;
+
+        // 1) Corredor reto inicial (identidade).
+        draw_straight_corridor(Matrix_Identity(), true, floor_material, ceiling_material, wall_material);
+
+        // 2) Quina de entrada (vira à esquerda), deslocada para o final do primeiro corredor.
+        model = glm::translate(Matrix_Identity(), glm::vec3(0.0f, 0.0f, kCorridorZ1));
+        glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+        
+        ApplyMaterial(corner_floor_material);   DrawVirtualObject("corner_left_floor");
+        ApplyMaterial(corner_ceiling_material); DrawVirtualObject("corner_left_ceiling");
+        ApplyMaterial(corner_wall_material);    
+        DrawVirtualObject("corner_left_wall_back");
+        DrawVirtualObject("corner_left_wall_right");
+
+        // 3) Corredor conector curto (eixo -X).
+        model = glm::translate(Matrix_Identity(),
+                               glm::vec3(-kCorridorHalfWidth, 0.0f, connector_center_z));
+        model = glm::rotate(model, glm::radians(+90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        model = glm::scale(model, glm::vec3(1.0f, 1.0f, kConnectorLength / kCorridorLength));
+        draw_straight_corridor(model, false, connector_floor_material, connector_ceiling_material, connector_wall_material);
+
+        // 4) Quina de saída (vira à direita).
+        model = glm::translate(Matrix_Identity(), glm::vec3(corridor2_offset_x, 0.0f, kCorridorZ1));
+        glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+        
+        ApplyMaterial(corner_floor_material);   DrawVirtualObject("corner_right_floor");
+        ApplyMaterial(corner_ceiling_material); DrawVirtualObject("corner_right_ceiling");
+        ApplyMaterial(corner_wall_material);    
+        DrawVirtualObject("corner_right_wall_front");
+        DrawVirtualObject("corner_right_wall_left");
+
+        // 5) Segundo corredor principal, idêntico ao primeiro (com posters).
+        model = glm::translate(Matrix_Identity(),
+                               glm::vec3(corridor2_offset_x, 0.0f, second_corridor_z_offset));
+        draw_straight_corridor(model, true, floor_material, ceiling_material, wall_material);
 
         // Imprimimos na tela os ângulos de Euler que controlam a rotação do
         // terceiro cubo.
@@ -1119,6 +1225,67 @@ void BuildCorridorAndAddToVirtualScene()
     glBindVertexArray(0);
 }
 
+void BuildCornerAndAddToVirtualScene()
+{
+    struct CornerVertex { float px, py, pz, pw; float nx, ny, nz, nw; float u, v; };
+
+    // Agora recebemos 4 booleanos, um para cada parede possível!
+    auto build_corner_parts = [&](const std::string& prefix, bool wall_front, bool wall_back, bool wall_left, bool wall_right)
+    {
+        auto add_quad = [&](const std::string& name, glm::vec3 p0, glm::vec3 p1, glm::vec3 p2, glm::vec3 p3, glm::vec3 normal)
+        {
+            std::vector<CornerVertex> vertices;
+            std::vector<GLuint> indices = {0, 1, 2, 0, 2, 3};
+
+            vertices.push_back({p0.x, p0.y, p0.z, 1.0f, normal.x, normal.y, normal.z, 0.0f, 0.0f, 0.0f});
+            vertices.push_back({p1.x, p1.y, p1.z, 1.0f, normal.x, normal.y, normal.z, 0.0f, 1.0f, 0.0f});
+            vertices.push_back({p2.x, p2.y, p2.z, 1.0f, normal.x, normal.y, normal.z, 0.0f, 1.0f, 1.0f});
+            vertices.push_back({p3.x, p3.y, p3.z, 1.0f, normal.x, normal.y, normal.z, 0.0f, 0.0f, 1.0f});
+
+            GLuint vao, vbo, ebo;
+            glGenVertexArrays(1, &vao); glBindVertexArray(vao);
+            glGenBuffers(1, &vbo); glBindBuffer(GL_ARRAY_BUFFER, vbo); glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(CornerVertex), vertices.data(), GL_STATIC_DRAW);
+            glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(CornerVertex), (void*)offsetof(CornerVertex, px)); glEnableVertexAttribArray(0);
+            glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(CornerVertex), (void*)offsetof(CornerVertex, nx)); glEnableVertexAttribArray(1);
+            glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(CornerVertex), (void*)offsetof(CornerVertex, u)); glEnableVertexAttribArray(2);
+            glGenBuffers(1, &ebo); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo); glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(GLuint), indices.data(), GL_STATIC_DRAW);
+            glBindVertexArray(0);
+
+            SceneObject object;
+            object.name = name;
+            object.first_index = 0;
+            object.num_indices = 6;
+            object.rendering_mode = GL_TRIANGLES;
+            object.vertex_array_object_id = vao;
+            object.bbox_min = p3; object.bbox_max = p1; 
+            g_VirtualScene[name] = object;
+        };
+
+        const float hw = kCorridorHalfWidth;
+        const float h = kCorridorHeight;
+        const float z0 = 0.0f;
+        const float z1 = -kCornerLength;
+
+        // Chão e Teto
+        add_quad(prefix + "_floor", glm::vec3(-hw, 0.0f, z0), glm::vec3(hw, 0.0f, z0), glm::vec3(hw, 0.0f, z1), glm::vec3(-hw, 0.0f, z1), glm::vec3(0.0f, 1.0f, 0.0f));
+        add_quad(prefix + "_ceiling", glm::vec3(-hw, h, z1), glm::vec3(hw, h, z1), glm::vec3(hw, h, z0), glm::vec3(-hw, h, z0), glm::vec3(0.0f, -1.0f, 0.0f));
+        
+        // Paredes dinâmicas (só cria se for TRUE)
+        if (wall_front) add_quad(prefix + "_wall_front", glm::vec3(hw, 0.0f, z0), glm::vec3(-hw, 0.0f, z0), glm::vec3(-hw, h, z0), glm::vec3(hw, h, z0), glm::vec3(0.0f, 0.0f, -1.0f));
+        if (wall_back)  add_quad(prefix + "_wall_back", glm::vec3(-hw, 0.0f, z1), glm::vec3(hw, 0.0f, z1), glm::vec3(hw, h, z1), glm::vec3(-hw, h, z1), glm::vec3(0.0f, 0.0f, 1.0f));
+        if (wall_left)  add_quad(prefix + "_wall_left", glm::vec3(-hw, 0.0f, z0), glm::vec3(-hw, 0.0f, z1), glm::vec3(-hw, h, z1), glm::vec3(-hw, h, z0), glm::vec3(1.0f, 0.0f, 0.0f));
+        if (wall_right) add_quad(prefix + "_wall_right", glm::vec3(hw, 0.0f, z1), glm::vec3(hw, 0.0f, z0), glm::vec3(hw, h, z0), glm::vec3(hw, h, z1), glm::vec3(-1.0f, 0.0f, 0.0f));
+    };
+
+    // Quina 1 (Vira à esquerda): Aberta na frente (para o Corredor 1) e aberta na esquerda (para o Conector).
+    // Tem parede no fundo e na direita.
+    build_corner_parts("corner_left", false, true, false, true);
+
+    // Quina 2 (Vira à direita): Aberta na direita (vindo do Conector) e aberta no fundo (para o Corredor 2).
+    // Tem parede na frente e na esquerda.
+    build_corner_parts("corner_right", true, false, true, false);
+}
+
 // Constrói triângulos para futura renderização a partir de um ObjModel.
 void BuildTrianglesAndAddToVirtualScene(ObjModel* model)
 {
@@ -1440,11 +1607,95 @@ void UpdateCameraFromInput(GLFWwindow* window, float delta_time)
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) g_CameraPosition += right * step;
 
     g_CameraPosition.y = 1.6f;
-    const float x_limit = kCorridorHalfWidth - 0.15f;
-    const float z_min = kCorridorZ1 + 0.3f;
-    const float z_max = 0.8f;
-    g_CameraPosition.x = std::max(-x_limit, std::min(x_limit, g_CameraPosition.x));
-    g_CameraPosition.z = std::max(z_min, std::min(z_max, g_CameraPosition.z));
+
+    struct WalkableBox2D
+    {
+        float min_x;
+        float max_x;
+        float min_z;
+        float max_z;
+    };
+
+    const float player_radius = 0.15f;
+    const float first_x_limit = kCorridorHalfWidth - player_radius;
+    const float first_z_max = 0.8f;
+
+    const float corridor2_offset_x = -(2.0f * kCorridorHalfWidth + kConnectorLength);
+    const float connector_center_z = kCorridorZ1 - 0.5f * kCornerLength;
+    const float connector_half_width = kCorridorHalfWidth - player_radius;
+
+    const WalkableBox2D corridor1 = {-first_x_limit, +first_x_limit, kCorridorZ1, first_z_max};
+    const WalkableBox2D corner_left = {-kCorridorHalfWidth, +kCorridorHalfWidth,
+                                       kCorridorZ1 - kCornerLength + player_radius, kCorridorZ1};
+    const WalkableBox2D connector = {-kCorridorHalfWidth - kConnectorLength, -kCorridorHalfWidth,
+                                     connector_center_z - connector_half_width, connector_center_z + connector_half_width};
+    const WalkableBox2D corner_right = {corridor2_offset_x - kCorridorHalfWidth, corridor2_offset_x + kCorridorHalfWidth,
+                                        kCorridorZ1 - kCornerLength + player_radius, kCorridorZ1};
+    const WalkableBox2D corridor2 = {corridor2_offset_x - first_x_limit, corridor2_offset_x + first_x_limit,
+                                     kCorridorZ1 - kCorridorLength + player_radius, kCorridorZ1};
+
+    auto clampf = [](float value, float min_value, float max_value)
+    {
+        return std::max(min_value, std::min(max_value, value));
+    };
+
+    auto inside_box = [](const WalkableBox2D& box, float x, float z)
+    {
+        return x >= box.min_x && x <= box.max_x && z >= box.min_z && z <= box.max_z;
+    };
+
+    auto closest_point = [&](const WalkableBox2D& box, glm::vec2 p)
+    {
+        return glm::vec2(clampf(p.x, box.min_x, box.max_x),
+                         clampf(p.y, box.min_z, box.max_z));
+    };
+
+    glm::vec2 p(g_CameraPosition.x, g_CameraPosition.z);
+    if (!inside_box(corridor1, p.x, p.y) &&
+        !inside_box(corner_left, p.x, p.y) &&
+        !inside_box(connector, p.x, p.y) &&
+        !inside_box(corner_right, p.x, p.y) &&
+        !inside_box(corridor2, p.x, p.y))
+    {
+        glm::vec2 best = closest_point(corridor1, p);
+        float best_dist2 = (best.x - p.x) * (best.x - p.x) + (best.y - p.y) * (best.y - p.y);
+
+        glm::vec2 candidate = closest_point(corner_left, p);
+        float dist2 = (candidate.x - p.x) * (candidate.x - p.x) + (candidate.y - p.y) * (candidate.y - p.y);
+        if (dist2 < best_dist2)
+        {
+            best = candidate;
+            best_dist2 = dist2;
+        }
+
+        candidate = closest_point(connector, p);
+        dist2 = (candidate.x - p.x) * (candidate.x - p.x) + (candidate.y - p.y) * (candidate.y - p.y);
+        if (dist2 < best_dist2)
+        {
+            best = candidate;
+            best_dist2 = dist2;
+        }
+
+        candidate = closest_point(corner_right, p);
+        dist2 = (candidate.x - p.x) * (candidate.x - p.x) + (candidate.y - p.y) * (candidate.y - p.y);
+        if (dist2 < best_dist2)
+        {
+            best = candidate;
+            best_dist2 = dist2;
+        }
+
+        candidate = closest_point(corridor2, p);
+        dist2 = (candidate.x - p.x) * (candidate.x - p.x) + (candidate.y - p.y) * (candidate.y - p.y);
+        if (dist2 < best_dist2)
+        {
+            best = candidate;
+        }
+
+        p = best;
+    }
+
+    g_CameraPosition.x = p.x;
+    g_CameraPosition.z = p.y;
     g_CameraPosition.w = 1.0f;
 }
 
