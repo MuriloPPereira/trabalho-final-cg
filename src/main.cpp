@@ -26,6 +26,7 @@
 #include <string>
 #include <vector>
 #include <limits>
+#include <cstddef>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -115,6 +116,7 @@ void PopMatrix(glm::mat4& M);
 // Declaração de várias funções utilizadas em main().  Essas estão definidas
 // logo após a definição de main() neste arquivo.
 void BuildTrianglesAndAddToVirtualScene(ObjModel*); // Constrói representação de um ObjModel como malha de triângulos para renderização
+void BuildCorridorAndAddToVirtualScene(); // Constrói um corredor procedural simples (chão, teto e paredes)
 void ComputeNormals(ObjModel* model); // Computa normais de um ObjModel, caso não existam.
 void LoadShadersFromFiles(); // Carrega os shaders de vértice e fragmento, criando um programa de GPU
 void LoadTextureImage(const char* filename); // Função que carrega imagens de textura
@@ -152,6 +154,8 @@ void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mode
 void MouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
 void CursorPosCallback(GLFWwindow* window, double xpos, double ypos);
 void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset);
+void UpdateCameraFromInput(GLFWwindow* window, float delta_time);
+glm::vec4 ComputeCameraFrontVector();
 
 // Definimos uma estrutura que armazenará dados necessários para renderizar
 // cada objeto da cena virtual.
@@ -191,13 +195,11 @@ bool g_LeftMouseButtonPressed = false;
 bool g_RightMouseButtonPressed = false; // Análogo para botão direito do mouse
 bool g_MiddleMouseButtonPressed = false; // Análogo para botão do meio do mouse
 
-// Variáveis que definem a câmera em coordenadas esféricas, controladas pelo
-// usuário através do mouse (veja função CursorPosCallback()). A posição
-// efetiva da câmera é calculada dentro da função main(), dentro do loop de
-// renderização.
-float g_CameraTheta = 0.0f; // Ângulo no plano ZX em relação ao eixo Z
-float g_CameraPhi = 0.0f;   // Ângulo em relação ao eixo Y
-float g_CameraDistance = 3.5f; // Distância da câmera para a origem
+// Câmera em primeira pessoa.
+glm::vec4 g_CameraPosition = glm::vec4(0.0f, 1.6f, 1.0f, 1.0f);
+float g_CameraYaw = 0.0f;
+float g_CameraPitch = 0.0f;
+bool g_FirstMouseInput = true;
 
 // Variáveis que controlam rotação do antebraço
 float g_ForearmAngleZ = 0.0f;
@@ -221,6 +223,13 @@ GLint g_projection_uniform;
 GLint g_object_id_uniform;
 GLint g_bbox_min_uniform;
 GLint g_bbox_max_uniform;
+GLint g_camera_position_uniform;
+GLint g_light_position_uniform;
+GLint g_light_color_uniform;
+
+const int OBJ_WALL = 0;
+const int OBJ_FLOOR = 1;
+const int OBJ_CEILING = 2;
 
 // Número de texturas carregadas pela função LoadTextureImage()
 GLuint g_NumLoadedTextures = 0;
@@ -284,6 +293,7 @@ int main(int argc, char* argv[])
     // (região de memória onde são armazenados os pixels da imagem).
     glfwSetFramebufferSizeCallback(window, FramebufferSizeCallback);
     FramebufferSizeCallback(window, 800, 600); // Forçamos a chamada do callback acima, para definir g_ScreenRatio.
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
     // Imprimimos no terminal informações sobre a GPU do sistema
     const GLubyte *vendor      = glGetString(GL_VENDOR);
@@ -302,24 +312,7 @@ int main(int argc, char* argv[])
     LoadTextureImage("../../data/red_brick_diff_1k.jpg");      // TextureImage0
     LoadTextureImage("../../data/rocky_terrain_02_diff_1k.jpg"); // TextureImage1
 
-    // Construímos a representação de objetos geométricos através de malhas de triângulos
-    ObjModel spheremodel("../../data/sphere.obj");
-    ComputeNormals(&spheremodel);
-    BuildTrianglesAndAddToVirtualScene(&spheremodel);
-
-    ObjModel bunnymodel("../../data/bunny.obj");
-    ComputeNormals(&bunnymodel);
-    BuildTrianglesAndAddToVirtualScene(&bunnymodel);
-
-    ObjModel planemodel("../../data/plane.obj");
-    ComputeNormals(&planemodel);
-    BuildTrianglesAndAddToVirtualScene(&planemodel);
-
-    if ( argc > 1 )
-    {
-        ObjModel model(argv[1]);
-        BuildTrianglesAndAddToVirtualScene(&model);
-    }
+    BuildCorridorAndAddToVirtualScene();
 
     // Inicializamos o código para renderização de texto.
     TextRendering_Init();
@@ -333,8 +326,14 @@ int main(int argc, char* argv[])
     glFrontFace(GL_CCW);
 
     // Ficamos em um loop infinito, renderizando, até que o usuário feche a janela
+    float last_frame_time = (float)glfwGetTime();
     while (!glfwWindowShouldClose(window))
     {
+        float current_frame_time = (float)glfwGetTime();
+        float delta_time = current_frame_time - last_frame_time;
+        last_frame_time = current_frame_time;
+        UpdateCameraFromInput(window, delta_time);
+
         // Aqui executamos as operações de renderização
 
         // Definimos a cor do "fundo" do framebuffer como branco.  Tal cor é
@@ -353,21 +352,11 @@ int main(int argc, char* argv[])
         // os shaders de vértice e fragmentos).
         glUseProgram(g_GpuProgramID);
 
-        // Computamos a posição da câmera utilizando coordenadas esféricas.  As
-        // variáveis g_CameraDistance, g_CameraPhi, e g_CameraTheta são
-        // controladas pelo mouse do usuário. Veja as funções CursorPosCallback()
-        // e ScrollCallback().
-        float r = g_CameraDistance;
-        float y = r*sin(g_CameraPhi);
-        float z = r*cos(g_CameraPhi)*cos(g_CameraTheta);
-        float x = r*cos(g_CameraPhi)*sin(g_CameraTheta);
-
-        // Abaixo definimos as varáveis que efetivamente definem a câmera virtual.
-        // Veja slides 195-227 e 229-234 do documento Aula_08_Sistemas_de_Coordenadas.pdf.
-        glm::vec4 camera_position_c  = glm::vec4(x,y,z,1.0f); // Ponto "c", centro da câmera
-        glm::vec4 camera_lookat_l    = glm::vec4(0.0f,0.0f,0.0f,1.0f); // Ponto "l", para onde a câmera (look-at) estará sempre olhando
-        glm::vec4 camera_view_vector = camera_lookat_l - camera_position_c; // Vetor "view", sentido para onde a câmera está virada
-        glm::vec4 camera_up_vector   = glm::vec4(0.0f,1.0f,0.0f,0.0f); // Vetor "up" fixado para apontar para o "céu" (eito Y global)
+        glm::vec4 camera_position_c  = g_CameraPosition;
+        glm::vec4 camera_front_vector = ComputeCameraFrontVector();
+        glm::vec4 camera_lookat_l    = camera_position_c + camera_front_vector;
+        glm::vec4 camera_view_vector = camera_lookat_l - camera_position_c;
+        glm::vec4 camera_up_vector   = glm::vec4(0.0f,1.0f,0.0f,0.0f);
 
         // Computamos a matriz "View" utilizando os parâmetros da câmera para
         // definir o sistema de coordenadas da câmera.  Veja slides 2-14, 184-190 e 236-242 do documento Aula_08_Sistemas_de_Coordenadas.pdf.
@@ -379,7 +368,7 @@ int main(int argc, char* argv[])
         // Note que, no sistema de coordenadas da câmera, os planos near e far
         // estão no sentido negativo! Veja slides 176-204 do documento Aula_09_Projecoes.pdf.
         float nearplane = -0.1f;  // Posição do "near plane"
-        float farplane  = -10.0f; // Posição do "far plane"
+        float farplane  = -30.0f; // Posição do "far plane"
 
         if (g_UsePerspectiveProjection)
         {
@@ -393,9 +382,8 @@ int main(int argc, char* argv[])
             // Projeção Ortográfica.
             // Para definição dos valores l, r, b, t ("left", "right", "bottom", "top"),
             // PARA PROJEÇÃO ORTOGRÁFICA veja slides 219-224 do documento Aula_09_Projecoes.pdf.
-            // Para simular um "zoom" ortográfico, computamos o valor de "t"
-            // utilizando a variável g_CameraDistance.
-            float t = 1.5f*g_CameraDistance/2.5f;
+            // Projeção ortográfica fixa.
+            float t = 1.5f;
             float b = -t;
             float r = t*g_ScreenRatio;
             float l = -r;
@@ -410,31 +398,23 @@ int main(int argc, char* argv[])
         glUniformMatrix4fv(g_view_uniform       , 1 , GL_FALSE , glm::value_ptr(view));
         glUniformMatrix4fv(g_projection_uniform , 1 , GL_FALSE , glm::value_ptr(projection));
 
-        #define SPHERE 0
-        #define BUNNY  1
-        #define PLANE  2
+        glm::vec4 light_position = glm::vec4(0.0f, 2.85f, -6.0f, 1.0f);
+        glUniform4f(g_camera_position_uniform, camera_position_c.x, camera_position_c.y, camera_position_c.z, camera_position_c.w);
+        glUniform4f(g_light_position_uniform, light_position.x, light_position.y, light_position.z, light_position.w);
+        glUniform3f(g_light_color_uniform, 1.0f, 0.98f, 0.92f);
 
-        // Desenhamos o modelo da esfera
-        model = Matrix_Translate(-1.0f,0.0f,0.0f)
-              * Matrix_Rotate_Z(0.6f)
-              * Matrix_Rotate_X(0.2f)
-              * Matrix_Rotate_Y(g_AngleY + (float)glfwGetTime() * 0.1f);
+        model = Matrix_Identity();
         glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
-        glUniform1i(g_object_id_uniform, SPHERE);
-        DrawVirtualObject("the_sphere");
 
-        // Desenhamos o modelo do coelho
-        model = Matrix_Translate(1.0f,0.0f,0.0f)
-              * Matrix_Rotate_X(g_AngleX + (float)glfwGetTime() * 0.1f);
-        glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
-        glUniform1i(g_object_id_uniform, BUNNY);
-        DrawVirtualObject("the_bunny");
+        glUniform1i(g_object_id_uniform, OBJ_FLOOR);
+        DrawVirtualObject("corridor_floor");
 
-        // Desenhamos o plano do chão
-        model = Matrix_Translate(0.0f,-1.1f,0.0f);
-        glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
-        glUniform1i(g_object_id_uniform, PLANE);
-        DrawVirtualObject("the_plane");
+        glUniform1i(g_object_id_uniform, OBJ_CEILING);
+        DrawVirtualObject("corridor_ceiling");
+
+        glUniform1i(g_object_id_uniform, OBJ_WALL);
+        DrawVirtualObject("corridor_wall_left");
+        DrawVirtualObject("corridor_wall_right");
 
         // Imprimimos na tela os ângulos de Euler que controlam a rotação do
         // terceiro cubo.
@@ -596,6 +576,9 @@ void LoadShadersFromFiles()
     g_object_id_uniform  = glGetUniformLocation(g_GpuProgramID, "object_id"); // Variável "object_id" em shader_fragment.glsl
     g_bbox_min_uniform   = glGetUniformLocation(g_GpuProgramID, "bbox_min");
     g_bbox_max_uniform   = glGetUniformLocation(g_GpuProgramID, "bbox_max");
+    g_camera_position_uniform = glGetUniformLocation(g_GpuProgramID, "camera_position");
+    g_light_position_uniform = glGetUniformLocation(g_GpuProgramID, "light_position");
+    g_light_color_uniform = glGetUniformLocation(g_GpuProgramID, "light_color");
 
     // Variáveis em "shader_fragment.glsl" para acesso das imagens de textura
     glUseProgram(g_GpuProgramID);
@@ -741,6 +724,129 @@ void ComputeNormals(ObjModel* model)
         }
 
     }
+}
+
+void BuildCorridorAndAddToVirtualScene()
+{
+    struct CorridorVertex
+    {
+        float px, py, pz, pw;
+        float nx, ny, nz, nw;
+        float u, v;
+    };
+
+    std::vector<CorridorVertex> vertices;
+    std::vector<GLuint> indices;
+
+    GLuint vertex_array_object_id;
+    glGenVertexArrays(1, &vertex_array_object_id);
+    glBindVertexArray(vertex_array_object_id);
+
+    auto add_quad = [&](const std::string& name,
+                        glm::vec3 p0, glm::vec3 p1, glm::vec3 p2, glm::vec3 p3,
+                        glm::vec3 normal,
+                        float u_max, float v_max)
+    {
+        size_t first_index = indices.size();
+        GLuint base_vertex = static_cast<GLuint>(vertices.size());
+
+        auto push_vertex = [&](glm::vec3 p, float u, float v)
+        {
+            CorridorVertex vertex;
+            vertex.px = p.x; vertex.py = p.y; vertex.pz = p.z; vertex.pw = 1.0f;
+            vertex.nx = normal.x; vertex.ny = normal.y; vertex.nz = normal.z; vertex.nw = 0.0f;
+            vertex.u = u; vertex.v = v;
+            vertices.push_back(vertex);
+        };
+
+        push_vertex(p0, 0.0f, 0.0f);
+        push_vertex(p1, u_max, 0.0f);
+        push_vertex(p2, u_max, v_max);
+        push_vertex(p3, 0.0f, v_max);
+
+        indices.push_back(base_vertex + 0);
+        indices.push_back(base_vertex + 1);
+        indices.push_back(base_vertex + 2);
+        indices.push_back(base_vertex + 0);
+        indices.push_back(base_vertex + 2);
+        indices.push_back(base_vertex + 3);
+
+        glm::vec3 bbox_min = p0;
+        glm::vec3 bbox_max = p0;
+        bbox_min.x = std::min(bbox_min.x, p1.x); bbox_min.y = std::min(bbox_min.y, p1.y); bbox_min.z = std::min(bbox_min.z, p1.z);
+        bbox_max.x = std::max(bbox_max.x, p1.x); bbox_max.y = std::max(bbox_max.y, p1.y); bbox_max.z = std::max(bbox_max.z, p1.z);
+        bbox_min.x = std::min(bbox_min.x, p2.x); bbox_min.y = std::min(bbox_min.y, p2.y); bbox_min.z = std::min(bbox_min.z, p2.z);
+        bbox_max.x = std::max(bbox_max.x, p2.x); bbox_max.y = std::max(bbox_max.y, p2.y); bbox_max.z = std::max(bbox_max.z, p2.z);
+        bbox_min.x = std::min(bbox_min.x, p3.x); bbox_min.y = std::min(bbox_min.y, p3.y); bbox_min.z = std::min(bbox_min.z, p3.z);
+        bbox_max.x = std::max(bbox_max.x, p3.x); bbox_max.y = std::max(bbox_max.y, p3.y); bbox_max.z = std::max(bbox_max.z, p3.z);
+
+        SceneObject object;
+        object.name = name;
+        object.first_index = first_index;
+        object.num_indices = 6;
+        object.rendering_mode = GL_TRIANGLES;
+        object.vertex_array_object_id = vertex_array_object_id;
+        object.bbox_min = bbox_min;
+        object.bbox_max = bbox_max;
+        g_VirtualScene[name] = object;
+    };
+
+    const float half_width = 2.0f;
+    const float corridor_height = 3.0f;
+    const float corridor_length = 12.0f;
+    const float z0 = 0.0f;
+    const float z1 = -corridor_length;
+
+    add_quad("corridor_floor",
+             glm::vec3(-half_width, 0.0f, z0),
+             glm::vec3(+half_width, 0.0f, z0),
+             glm::vec3(+half_width, 0.0f, z1),
+             glm::vec3(-half_width, 0.0f, z1),
+             glm::vec3(0.0f, 1.0f, 0.0f),
+             4.0f, 12.0f);
+
+    add_quad("corridor_ceiling",
+             glm::vec3(-half_width, corridor_height, z1),
+             glm::vec3(+half_width, corridor_height, z1),
+             glm::vec3(+half_width, corridor_height, z0),
+             glm::vec3(-half_width, corridor_height, z0),
+             glm::vec3(0.0f, -1.0f, 0.0f),
+             4.0f, 12.0f);
+
+    add_quad("corridor_wall_left",
+             glm::vec3(-half_width, 0.0f, z0),
+             glm::vec3(-half_width, 0.0f, z1),
+             glm::vec3(-half_width, corridor_height, z1),
+             glm::vec3(-half_width, corridor_height, z0),
+             glm::vec3(1.0f, 0.0f, 0.0f),
+             12.0f, 3.0f);
+
+    add_quad("corridor_wall_right",
+             glm::vec3(+half_width, 0.0f, z1),
+             glm::vec3(+half_width, 0.0f, z0),
+             glm::vec3(+half_width, corridor_height, z0),
+             glm::vec3(+half_width, corridor_height, z1),
+             glm::vec3(-1.0f, 0.0f, 0.0f),
+             12.0f, 3.0f);
+
+    GLuint vertex_buffer_id;
+    glGenBuffers(1, &vertex_buffer_id);
+    glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer_id);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(CorridorVertex), vertices.data(), GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(CorridorVertex), (void*)offsetof(CorridorVertex, px));
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(CorridorVertex), (void*)offsetof(CorridorVertex, nx));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(CorridorVertex), (void*)offsetof(CorridorVertex, u));
+    glEnableVertexAttribArray(2);
+
+    GLuint index_buffer_id;
+    glGenBuffers(1, &index_buffer_id);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, index_buffer_id);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(GLuint), indices.data(), GL_STATIC_DRAW);
+
+    glBindVertexArray(0);
 }
 
 // Constrói triângulos para futura renderização a partir de um ObjModel.
@@ -1036,6 +1142,39 @@ GLuint CreateGpuProgram(GLuint vertex_shader_id, GLuint fragment_shader_id)
     return program_id;
 }
 
+glm::vec4 ComputeCameraFrontVector()
+{
+    float cos_pitch = cos(g_CameraPitch);
+    glm::vec4 front = glm::vec4(
+        cos_pitch * sin(g_CameraYaw),
+        sin(g_CameraPitch),
+        -cos_pitch * cos(g_CameraYaw),
+        0.0f
+    );
+    return front / norm(front);
+}
+
+void UpdateCameraFromInput(GLFWwindow* window, float delta_time)
+{
+    float movement_speed = 2.8f;
+    float step = movement_speed * delta_time;
+
+    glm::vec4 front = ComputeCameraFrontVector();
+    glm::vec4 world_up = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
+    glm::vec4 right = crossproduct(front, world_up);
+    right = right / norm(right);
+
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) g_CameraPosition += front * step;
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) g_CameraPosition -= front * step;
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) g_CameraPosition -= right * step;
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) g_CameraPosition += right * step;
+
+    g_CameraPosition.y = 1.6f;
+    g_CameraPosition.x = std::max(-1.85f, std::min(1.85f, g_CameraPosition.x));
+    g_CameraPosition.z = std::max(-11.7f, std::min(0.8f, g_CameraPosition.z));
+    g_CameraPosition.w = 1.0f;
+}
+
 // Definição da função que será chamada sempre que a janela do sistema
 // operacional for redimensionada, por consequência alterando o tamanho do
 // "framebuffer" (região de memória onde são armazenados os pixels da imagem).
@@ -1119,86 +1258,35 @@ void MouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
 // cima da janela OpenGL.
 void CursorPosCallback(GLFWwindow* window, double xpos, double ypos)
 {
-    // Abaixo executamos o seguinte: caso o botão esquerdo do mouse esteja
-    // pressionado, computamos quanto que o mouse se movimento desde o último
-    // instante de tempo, e usamos esta movimentação para atualizar os
-    // parâmetros que definem a posição da câmera dentro da cena virtual.
-    // Assim, temos que o usuário consegue controlar a câmera.
-
-    if (g_LeftMouseButtonPressed)
+    (void)window;
+    if (g_FirstMouseInput)
     {
-        // Deslocamento do cursor do mouse em x e y de coordenadas de tela!
-        float dx = xpos - g_LastCursorPosX;
-        float dy = ypos - g_LastCursorPosY;
-    
-        // Atualizamos parâmetros da câmera com os deslocamentos
-        g_CameraTheta -= 0.01f*dx;
-        g_CameraPhi   += 0.01f*dy;
-    
-        // Em coordenadas esféricas, o ângulo phi deve ficar entre -pi/2 e +pi/2.
-        float phimax = 3.141592f/2;
-        float phimin = -phimax;
-    
-        if (g_CameraPhi > phimax)
-            g_CameraPhi = phimax;
-    
-        if (g_CameraPhi < phimin)
-            g_CameraPhi = phimin;
-    
-        // Atualizamos as variáveis globais para armazenar a posição atual do
-        // cursor como sendo a última posição conhecida do cursor.
         g_LastCursorPosX = xpos;
         g_LastCursorPosY = ypos;
+        g_FirstMouseInput = false;
+        return;
     }
 
-    if (g_RightMouseButtonPressed)
-    {
-        // Deslocamento do cursor do mouse em x e y de coordenadas de tela!
-        float dx = xpos - g_LastCursorPosX;
-        float dy = ypos - g_LastCursorPosY;
-    
-        // Atualizamos parâmetros da antebraço com os deslocamentos
-        g_ForearmAngleZ -= 0.01f*dx;
-        g_ForearmAngleX += 0.01f*dy;
-    
-        // Atualizamos as variáveis globais para armazenar a posição atual do
-        // cursor como sendo a última posição conhecida do cursor.
-        g_LastCursorPosX = xpos;
-        g_LastCursorPosY = ypos;
-    }
+    float dx = static_cast<float>(xpos - g_LastCursorPosX);
+    float dy = static_cast<float>(g_LastCursorPosY - ypos);
+    g_LastCursorPosX = xpos;
+    g_LastCursorPosY = ypos;
 
-    if (g_MiddleMouseButtonPressed)
-    {
-        // Deslocamento do cursor do mouse em x e y de coordenadas de tela!
-        float dx = xpos - g_LastCursorPosX;
-        float dy = ypos - g_LastCursorPosY;
-    
-        // Atualizamos parâmetros da antebraço com os deslocamentos
-        g_TorsoPositionX += 0.01f*dx;
-        g_TorsoPositionY -= 0.01f*dy;
-    
-        // Atualizamos as variáveis globais para armazenar a posição atual do
-        // cursor como sendo a última posição conhecida do cursor.
-        g_LastCursorPosX = xpos;
-        g_LastCursorPosY = ypos;
-    }
+    const float sensitivity = 0.0025f;
+    g_CameraYaw += sensitivity * dx;
+    g_CameraPitch += sensitivity * dy;
+
+    const float pitch_limit = 1.5533f;
+    if (g_CameraPitch > pitch_limit) g_CameraPitch = pitch_limit;
+    if (g_CameraPitch < -pitch_limit) g_CameraPitch = -pitch_limit;
 }
 
 // Função callback chamada sempre que o usuário movimenta a "rodinha" do mouse.
 void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset)
 {
-    // Atualizamos a distância da câmera para a origem utilizando a
-    // movimentação da "rodinha", simulando um ZOOM.
-    g_CameraDistance -= 0.1f*yoffset;
-
-    // Uma câmera look-at nunca pode estar exatamente "em cima" do ponto para
-    // onde ela está olhando, pois isto gera problemas de divisão por zero na
-    // definição do sistema de coordenadas da câmera. Isto é, a variável abaixo
-    // nunca pode ser zero. Versões anteriores deste código possuíam este bug,
-    // o qual foi detectado pelo aluno Vinicius Fraga (2017/2).
-    const float verysmallnumber = std::numeric_limits<float>::epsilon();
-    if (g_CameraDistance < verysmallnumber)
-        g_CameraDistance = verysmallnumber;
+    (void)window;
+    (void)xoffset;
+    (void)yoffset;
 }
 
 void Correcao_KeyCallback(int key, int action, int mod);
