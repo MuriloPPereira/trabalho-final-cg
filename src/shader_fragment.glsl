@@ -5,83 +5,67 @@ in vec4 normal;
 in vec4 position_model;
 in vec2 texcoords;
 
-uniform int object_id;
-uniform sampler2D TextureImage0; // parede
-uniform sampler2D TextureImage1; // opcional para chão/teto
-uniform sampler2D TexturePoster0;
-uniform sampler2D TexturePoster1;
-uniform sampler2D TexturePoster2;
-uniform sampler2D TexturePoster3;
-uniform int poster_index;
-
 uniform vec4 camera_position;
-uniform vec4 light_position;
-uniform vec3 light_color;
+
+struct Material
+{
+    sampler2D diffuse_texture;
+    float specular_strength;
+    float shininess;
+    float ambient_strength;
+    vec2 uv_scale;
+};
+
+struct PointLight
+{
+    vec3 position;
+    vec3 color;
+    float ambient_strength;
+    float diffuse_strength;
+    float specular_strength;
+    float constant;
+    float linear;
+    float quadratic;
+};
+
+#define MAX_LIGHTS 12
+
+uniform int num_lights;
+uniform Material material;
+uniform PointLight lights[MAX_LIGHTS];
 
 out vec4 color;
 
-#define OBJ_WALL    0
-#define OBJ_FLOOR   1
-#define OBJ_CEILING 2
-#define OBJ_POSTER  3
-
 void main()
 {
-    vec3 albedo;
-    vec3 Ks;
-    float shininess;
-
-    if (object_id == OBJ_WALL)
-    {
-        albedo = texture(TextureImage0, texcoords).rgb;
-        Ks = vec3(0.85, 0.85, 0.85); // brilho glossy
-        shininess = 96.0;
-    }
-    else if (object_id == OBJ_FLOOR)
-    {
-        albedo = texture(TextureImage1, texcoords).rgb * 0.7;
-        Ks = vec3(0.08, 0.08, 0.08);
-        shininess = 10.0;
-    }
-    else if (object_id == OBJ_POSTER)
-    {
-        if (poster_index == 0)
-            albedo = texture(TexturePoster0, texcoords).rgb;
-        else if (poster_index == 1)
-            albedo = texture(TexturePoster1, texcoords).rgb;
-        else if (poster_index == 2)
-            albedo = texture(TexturePoster2, texcoords).rgb;
-        else
-            albedo = texture(TexturePoster3, texcoords).rgb;
-
-        Ks = vec3(0.20, 0.20, 0.20);
-        shininess = 24.0;
-    }
-    else
-    {
-        albedo = vec3(0.78, 0.78, 0.80);
-        Ks = vec3(0.25, 0.25, 0.25);
-        shininess = 24.0;
-    }
+    vec2 uv = texcoords * material.uv_scale;
+    vec3 albedo = texture(material.diffuse_texture, uv).rgb;
 
     vec3 P = position_world.xyz;
     vec3 N = normalize(normal.xyz);
-    vec3 L = normalize(light_position.xyz - P);
     vec3 V = normalize(camera_position.xyz - P);
-    vec3 R = reflect(-L, N);
 
-    float dist = length(light_position.xyz - P);
-    float attenuation = 1.0 / (1.0 + 0.12 * dist + 0.032 * dist * dist);
+    vec3 result = vec3(0.0);
+    int light_count = min(num_lights, MAX_LIGHTS);
+    for (int i = 0; i < light_count; ++i)
+    {
+        vec3 L = normalize(lights[i].position - P);
+        float dist = length(lights[i].position - P);
+        float attenuation = 1.0 / (lights[i].constant + lights[i].linear * dist + lights[i].quadratic * dist * dist);
 
-    float lambert = max(dot(N, L), 0.0);
-    float spec = 0.0;
-    if (lambert > 0.0)
-        spec = pow(max(dot(R, V), 0.0), shininess);
+        float lambert = max(dot(N, L), 0.0);
+        vec3 R = reflect(-L, N);
 
-    vec3 ambient = 0.10 * albedo;
-    vec3 diffuse = lambert * albedo * light_color;
-    vec3 specular = spec * Ks * light_color;
-    vec3 result = ambient + attenuation * (diffuse + specular);
+        float spec = 0.0;
+        if (lambert > 0.0)
+            spec = pow(max(dot(R, V), 0.0), material.shininess);
+
+        vec3 ambient = lights[i].ambient_strength * material.ambient_strength * albedo * lights[i].color;
+        vec3 diffuse = lights[i].diffuse_strength * lambert * albedo * lights[i].color;
+        vec3 specular = lights[i].specular_strength * spec * material.specular_strength * lights[i].color;
+
+        result += ambient + attenuation * (diffuse + specular);
+    }
 
     color.rgb = pow(result, vec3(1.0 / 2.2));
     color.a = 1.0;

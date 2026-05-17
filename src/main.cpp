@@ -38,6 +38,7 @@
 
 // Headers da biblioteca GLM: criação de matrizes e vetores.
 #include <glm/mat4x4.hpp>
+#include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
@@ -113,6 +114,9 @@ struct ObjModel
 void PushMatrix(glm::mat4 M);
 void PopMatrix(glm::mat4& M);
 
+struct Material;
+struct PointLight;
+
 // Declaração de várias funções utilizadas em main().  Essas estão definidas
 // logo após a definição de main() neste arquivo.
 void BuildTrianglesAndAddToVirtualScene(ObjModel*); // Constrói representação de um ObjModel como malha de triângulos para renderização
@@ -122,6 +126,8 @@ void ComputeNormals(ObjModel* model); // Computa normais de um ObjModel, caso n�
 void LoadShadersFromFiles(); // Carrega os shaders de vértice e fragmento, criando um programa de GPU
 void LoadTextureImage(const char* filename, GLint wrap_s, GLint wrap_t); // Função que carrega imagens de textura
 void DrawVirtualObject(const char* object_name); // Desenha um objeto armazenado em g_VirtualScene
+void ApplyMaterial(const struct Material& material);
+void SetPointLights(const std::vector<struct PointLight>& lights);
 GLuint LoadShader_Vertex(const char* filename);   // Carrega um vertex shader
 GLuint LoadShader_Fragment(const char* filename); // Carrega um fragment shader
 void LoadShader(const char* filename, GLuint shader_id); // Função utilizada pelas duas acima
@@ -169,6 +175,27 @@ struct SceneObject
     GLuint       vertex_array_object_id; // ID do VAO onde estão armazenados os atributos do modelo
     glm::vec3    bbox_min; // Axis-Aligned Bounding Box do objeto
     glm::vec3    bbox_max;
+};
+
+struct Material
+{
+    GLuint diffuse_texture_unit;
+    float specular_strength;
+    float shininess;
+    float ambient_strength;
+    glm::vec2 uv_scale;
+};
+
+struct PointLight
+{
+    glm::vec3 position;
+    glm::vec3 color;
+    float ambient_strength;
+    float diffuse_strength;
+    float specular_strength;
+    float constant;
+    float linear;
+    float quadratic;
 };
 
 // Abaixo definimos variáveis globais utilizadas em várias funções do código.
@@ -221,18 +248,25 @@ GLuint g_GpuProgramID = 0;
 GLint g_model_uniform;
 GLint g_view_uniform;
 GLint g_projection_uniform;
-GLint g_object_id_uniform;
 GLint g_bbox_min_uniform;
 GLint g_bbox_max_uniform;
 GLint g_camera_position_uniform;
-GLint g_light_position_uniform;
-GLint g_light_color_uniform;
-GLint g_poster_index_uniform;
+GLint g_material_diffuse_uniform;
+GLint g_material_specular_strength_uniform;
+GLint g_material_shininess_uniform;
+GLint g_material_ambient_strength_uniform;
+GLint g_material_uv_scale_uniform;
+GLint g_num_lights_uniform;
 
-const int OBJ_WALL = 0;
-const int OBJ_FLOOR = 1;
-const int OBJ_CEILING = 2;
-const int OBJ_POSTER = 3;
+const int kMaxLights = 12;
+GLint g_light_position_uniforms[kMaxLights];
+GLint g_light_color_uniforms[kMaxLights];
+GLint g_light_ambient_strength_uniforms[kMaxLights];
+GLint g_light_diffuse_strength_uniforms[kMaxLights];
+GLint g_light_specular_strength_uniforms[kMaxLights];
+GLint g_light_constant_uniforms[kMaxLights];
+GLint g_light_linear_uniforms[kMaxLights];
+GLint g_light_quadratic_uniforms[kMaxLights];
 
 const float kCorridorHalfWidth = 2.0f;
 const float kCorridorHeight = 3.0f;
@@ -240,6 +274,7 @@ const float kCorridorLength = 40.0f;
 const float kCorridorZ0 = 0.0f;
 const float kCorridorZ1 = -kCorridorLength;
 const int kPosterCount = 4;
+const int kLampCount = 7;
 const char* kPosterNames[kPosterCount] = {"poster_0", "poster_1", "poster_2", "poster_3"};
 
 // Número de texturas carregadas pela função LoadTextureImage()
@@ -319,16 +354,85 @@ int main(int argc, char* argv[])
     //
     LoadShadersFromFiles();
 
-    // Carregamos duas imagens para serem utilizadas como textura
-    LoadTextureImage("../../data/wall.jpg", GL_REPEAT, GL_REPEAT); // TextureImage0
-    LoadTextureImage("../../data/rocky_terrain_02_diff_1k.jpg", GL_REPEAT, GL_REPEAT); // TextureImage1
-    LoadTextureImage("../../data/poster1.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // TexturePoster0
-    LoadTextureImage("../../data/poster2.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // TexturePoster1
-    LoadTextureImage("../../data/poster3.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // TexturePoster2
-    LoadTextureImage("../../data/poster4.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // TexturePoster3
+    // Carregamos imagens para serem utilizadas como textura (caminhos relativos a data/)
+    LoadTextureImage("wall.jpg", GL_REPEAT, GL_REPEAT); // 0
+    LoadTextureImage("floor.jpg", GL_REPEAT, GL_REPEAT); // 1
+    LoadTextureImage("ceiling.jpg", GL_REPEAT, GL_REPEAT); // 2
+    LoadTextureImage("poster1.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // 3
+    LoadTextureImage("poster2.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // 4
+    LoadTextureImage("poster3.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // 5
+    LoadTextureImage("poster4.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // 6
 
     BuildCorridorAndAddToVirtualScene();
     BuildPostersAndAddToVirtualScene();
+
+    const GLuint kWallTextureUnit = 0;
+    const GLuint kFloorTextureUnit = 1;
+    const GLuint kCeilingTextureUnit = 2;
+    const GLuint kPosterTextureUnits[kPosterCount] = {3, 4, 5, 6};
+
+    const float floor_tile_size = 0.5f;
+    const float ceiling_tile_size = 2.5f;
+    const float wall_tile_size_z = 2.0f;
+    const float wall_tile_size_y = 1.5f;
+
+    const glm::vec2 floor_uv_scale((2.0f * kCorridorHalfWidth) / floor_tile_size,
+                                   kCorridorLength / floor_tile_size);
+    const glm::vec2 ceiling_uv_scale((2.0f * kCorridorHalfWidth) / ceiling_tile_size,
+                                     kCorridorLength / ceiling_tile_size);
+    const glm::vec2 wall_uv_scale(kCorridorLength / wall_tile_size_z,
+                                  kCorridorHeight / wall_tile_size_y);
+
+    Material wall_material;
+    wall_material.diffuse_texture_unit = kWallTextureUnit;
+    wall_material.specular_strength = 0.9f;
+    wall_material.shininess = 96.0f;
+    wall_material.ambient_strength = 0.05f;
+    wall_material.uv_scale = wall_uv_scale;
+
+    Material floor_material;
+    floor_material.diffuse_texture_unit = kFloorTextureUnit;
+    floor_material.specular_strength = 0.35f;
+    floor_material.shininess = 48.0f;
+    floor_material.ambient_strength = 0.04f;
+    floor_material.uv_scale = floor_uv_scale;
+
+    Material ceiling_material;
+    ceiling_material.diffuse_texture_unit = kCeilingTextureUnit;
+    ceiling_material.specular_strength = 0.15f;
+    ceiling_material.shininess = 20.0f;
+    ceiling_material.ambient_strength = 0.03f;
+    ceiling_material.uv_scale = ceiling_uv_scale;
+
+    std::vector<Material> poster_materials;
+    poster_materials.reserve(kPosterCount);
+    for (int i = 0; i < kPosterCount; ++i)
+    {
+        Material poster_material;
+        poster_material.diffuse_texture_unit = kPosterTextureUnits[i];
+        poster_material.specular_strength = 0.10f;
+        poster_material.shininess = 24.0f;
+        poster_material.ambient_strength = 0.05f;
+        poster_material.uv_scale = glm::vec2(1.0f, 1.0f);
+        poster_materials.push_back(poster_material);
+    }
+
+    std::vector<PointLight> corridor_lights;
+    corridor_lights.reserve(kLampCount);
+    const float lamp_spacing = kCorridorLength / (kLampCount + 1);
+    for (int i = 0; i < kLampCount; ++i)
+    {
+        PointLight light;
+        light.position = glm::vec3(0.0f, kCorridorHeight - 0.15f, -(i + 1) * lamp_spacing);
+        light.color = glm::vec3(1.0f, 0.98f, 0.92f);
+        light.ambient_strength = 0.03f;
+        light.diffuse_strength = 1.0f;
+        light.specular_strength = 1.0f;
+        light.constant = 1.0f;
+        light.linear = 0.14f;
+        light.quadratic = 0.07f;
+        corridor_lights.push_back(light);
+    }
 
     // Inicializamos o código para renderização de texto.
     TextRendering_Init();
@@ -358,7 +462,7 @@ int main(int argc, char* argv[])
         // Conversaremos sobre sistemas de cores nas aulas de Modelos de Iluminação.
         //
         //           R     G     B     A
-        glClearColor(0.9f, 0.9f, 1.0f, 1.0f);
+        glClearColor(0.07f, 0.07f, 0.08f, 1.0f);
 
         // "Pintamos" todos os pixels do framebuffer com a cor definida acima,
         // e também resetamos todos os pixels do Z-buffer (depth buffer).
@@ -414,28 +518,25 @@ int main(int argc, char* argv[])
         glUniformMatrix4fv(g_view_uniform       , 1 , GL_FALSE , glm::value_ptr(view));
         glUniformMatrix4fv(g_projection_uniform , 1 , GL_FALSE , glm::value_ptr(projection));
 
-        glm::vec4 light_position = glm::vec4(0.0f, kCorridorHeight - 0.15f, -kCorridorLength * 0.35f, 1.0f);
         glUniform4f(g_camera_position_uniform, camera_position_c.x, camera_position_c.y, camera_position_c.z, camera_position_c.w);
-        glUniform4f(g_light_position_uniform, light_position.x, light_position.y, light_position.z, light_position.w);
-        glUniform3f(g_light_color_uniform, 1.0f, 0.98f, 0.92f);
+        SetPointLights(corridor_lights);
 
         model = Matrix_Identity();
         glUniformMatrix4fv(g_model_uniform, 1 , GL_FALSE , glm::value_ptr(model));
 
-        glUniform1i(g_object_id_uniform, OBJ_FLOOR);
+        ApplyMaterial(floor_material);
         DrawVirtualObject("corridor_floor");
 
-        glUniform1i(g_object_id_uniform, OBJ_CEILING);
+        ApplyMaterial(ceiling_material);
         DrawVirtualObject("corridor_ceiling");
 
-        glUniform1i(g_object_id_uniform, OBJ_WALL);
+        ApplyMaterial(wall_material);
         DrawVirtualObject("corridor_wall_left");
         DrawVirtualObject("corridor_wall_right");
 
-        glUniform1i(g_object_id_uniform, OBJ_POSTER);
         for (int i = 0; i < kPosterCount; ++i)
         {
-            glUniform1i(g_poster_index_uniform, i);
+            ApplyMaterial(poster_materials[i]);
             DrawVirtualObject(kPosterNames[i]);
         }
 
@@ -475,18 +576,19 @@ int main(int argc, char* argv[])
 // Função que carrega uma imagem para ser utilizada como textura
 void LoadTextureImage(const char* filename, GLint wrap_s, GLint wrap_t)
 {
-    printf("Carregando imagem \"%s\"... ", filename);
+    std::string fullpath = std::string("../../data/") + filename;
+    printf("Carregando imagem \"%s\"... ", fullpath.c_str());
 
     // Primeiro fazemos a leitura da imagem do disco
     stbi_set_flip_vertically_on_load(true);
     int width;
     int height;
     int channels;
-    unsigned char *data = stbi_load(filename, &width, &height, &channels, 3);
+    unsigned char *data = stbi_load(fullpath.c_str(), &width, &height, &channels, 3);
 
     if ( data == NULL )
     {
-        fprintf(stderr, "ERROR: Cannot open image file \"%s\".\n", filename);
+        fprintf(stderr, "ERROR: Cannot open image file \"%s\".\n", fullpath.c_str());
         std::exit(EXIT_FAILURE);
     }
 
@@ -522,6 +624,34 @@ void LoadTextureImage(const char* filename, GLint wrap_s, GLint wrap_t)
     stbi_image_free(data);
 
     g_NumLoadedTextures += 1;
+}
+
+void ApplyMaterial(const Material& material)
+{
+    glUniform1i(g_material_diffuse_uniform, material.diffuse_texture_unit);
+    glUniform1f(g_material_specular_strength_uniform, material.specular_strength);
+    glUniform1f(g_material_shininess_uniform, material.shininess);
+    glUniform1f(g_material_ambient_strength_uniform, material.ambient_strength);
+    glUniform2f(g_material_uv_scale_uniform, material.uv_scale.x, material.uv_scale.y);
+}
+
+void SetPointLights(const std::vector<PointLight>& lights)
+{
+    int count = static_cast<int>(std::min(lights.size(), static_cast<size_t>(kMaxLights)));
+    glUniform1i(g_num_lights_uniform, count);
+
+    for (int i = 0; i < count; ++i)
+    {
+        const PointLight& light = lights[i];
+        glUniform3f(g_light_position_uniforms[i], light.position.x, light.position.y, light.position.z);
+        glUniform3f(g_light_color_uniforms[i], light.color.x, light.color.y, light.color.z);
+        glUniform1f(g_light_ambient_strength_uniforms[i], light.ambient_strength);
+        glUniform1f(g_light_diffuse_strength_uniforms[i], light.diffuse_strength);
+        glUniform1f(g_light_specular_strength_uniforms[i], light.specular_strength);
+        glUniform1f(g_light_constant_uniforms[i], light.constant);
+        glUniform1f(g_light_linear_uniforms[i], light.linear);
+        glUniform1f(g_light_quadratic_uniforms[i], light.quadratic);
+    }
 }
 
 // Função que desenha um objeto armazenado em g_VirtualScene. Veja definição
@@ -704,23 +834,28 @@ void LoadShadersFromFiles()
     g_model_uniform      = glGetUniformLocation(g_GpuProgramID, "model"); // Variável da matriz "model"
     g_view_uniform       = glGetUniformLocation(g_GpuProgramID, "view"); // Variável da matriz "view" em shader_vertex.glsl
     g_projection_uniform = glGetUniformLocation(g_GpuProgramID, "projection"); // Variável da matriz "projection" em shader_vertex.glsl
-    g_object_id_uniform  = glGetUniformLocation(g_GpuProgramID, "object_id"); // Variável "object_id" em shader_fragment.glsl
     g_bbox_min_uniform   = glGetUniformLocation(g_GpuProgramID, "bbox_min");
     g_bbox_max_uniform   = glGetUniformLocation(g_GpuProgramID, "bbox_max");
     g_camera_position_uniform = glGetUniformLocation(g_GpuProgramID, "camera_position");
-    g_light_position_uniform = glGetUniformLocation(g_GpuProgramID, "light_position");
-    g_light_color_uniform = glGetUniformLocation(g_GpuProgramID, "light_color");
-    g_poster_index_uniform = glGetUniformLocation(g_GpuProgramID, "poster_index");
+    g_material_diffuse_uniform = glGetUniformLocation(g_GpuProgramID, "material.diffuse_texture");
+    g_material_specular_strength_uniform = glGetUniformLocation(g_GpuProgramID, "material.specular_strength");
+    g_material_shininess_uniform = glGetUniformLocation(g_GpuProgramID, "material.shininess");
+    g_material_ambient_strength_uniform = glGetUniformLocation(g_GpuProgramID, "material.ambient_strength");
+    g_material_uv_scale_uniform = glGetUniformLocation(g_GpuProgramID, "material.uv_scale");
+    g_num_lights_uniform = glGetUniformLocation(g_GpuProgramID, "num_lights");
 
-    // Variáveis em "shader_fragment.glsl" para acesso das imagens de textura
-    glUseProgram(g_GpuProgramID);
-    glUniform1i(glGetUniformLocation(g_GpuProgramID, "TextureImage0"), 0);
-    glUniform1i(glGetUniformLocation(g_GpuProgramID, "TextureImage1"), 1);
-    glUniform1i(glGetUniformLocation(g_GpuProgramID, "TexturePoster0"), 2);
-    glUniform1i(glGetUniformLocation(g_GpuProgramID, "TexturePoster1"), 3);
-    glUniform1i(glGetUniformLocation(g_GpuProgramID, "TexturePoster2"), 4);
-    glUniform1i(glGetUniformLocation(g_GpuProgramID, "TexturePoster3"), 5);
-    glUseProgram(0);
+    for (int i = 0; i < kMaxLights; ++i)
+    {
+        std::string prefix = "lights[" + std::to_string(i) + "].";
+        g_light_position_uniforms[i] = glGetUniformLocation(g_GpuProgramID, (prefix + "position").c_str());
+        g_light_color_uniforms[i] = glGetUniformLocation(g_GpuProgramID, (prefix + "color").c_str());
+        g_light_ambient_strength_uniforms[i] = glGetUniformLocation(g_GpuProgramID, (prefix + "ambient_strength").c_str());
+        g_light_diffuse_strength_uniforms[i] = glGetUniformLocation(g_GpuProgramID, (prefix + "diffuse_strength").c_str());
+        g_light_specular_strength_uniforms[i] = glGetUniformLocation(g_GpuProgramID, (prefix + "specular_strength").c_str());
+        g_light_constant_uniforms[i] = glGetUniformLocation(g_GpuProgramID, (prefix + "constant").c_str());
+        g_light_linear_uniforms[i] = glGetUniformLocation(g_GpuProgramID, (prefix + "linear").c_str());
+        g_light_quadratic_uniforms[i] = glGetUniformLocation(g_GpuProgramID, (prefix + "quadratic").c_str());
+    }
 }
 
 // Função que pega a matriz M e guarda a mesma no topo da pilha
@@ -932,22 +1067,13 @@ void BuildCorridorAndAddToVirtualScene()
     const float z0 = kCorridorZ0;
     const float z1 = kCorridorZ1;
 
-    const float floor_tile_size = 2.0f;
-    const float wall_tile_size_z = 2.0f;
-    const float wall_tile_size_y = 1.5f;
-
-    const float floor_repeat_u = (2.0f * half_width) / floor_tile_size;
-    const float floor_repeat_v = corridor_length / floor_tile_size;
-    const float wall_repeat_u = corridor_length / wall_tile_size_z;
-    const float wall_repeat_v = corridor_height / wall_tile_size_y;
-
     add_quad("corridor_floor",
              glm::vec3(-half_width, 0.0f, z0),
              glm::vec3(+half_width, 0.0f, z0),
              glm::vec3(+half_width, 0.0f, z1),
              glm::vec3(-half_width, 0.0f, z1),
              glm::vec3(0.0f, 1.0f, 0.0f),
-             floor_repeat_u, floor_repeat_v);
+             1.0f, 1.0f);
 
     add_quad("corridor_ceiling",
              glm::vec3(-half_width, corridor_height, z1),
@@ -955,7 +1081,7 @@ void BuildCorridorAndAddToVirtualScene()
              glm::vec3(+half_width, corridor_height, z0),
              glm::vec3(-half_width, corridor_height, z0),
              glm::vec3(0.0f, -1.0f, 0.0f),
-             floor_repeat_u, floor_repeat_v);
+             1.0f, 1.0f);
 
     add_quad("corridor_wall_left",
              glm::vec3(-half_width, 0.0f, z0),
@@ -963,7 +1089,7 @@ void BuildCorridorAndAddToVirtualScene()
              glm::vec3(-half_width, corridor_height, z1),
              glm::vec3(-half_width, corridor_height, z0),
              glm::vec3(1.0f, 0.0f, 0.0f),
-             wall_repeat_u, wall_repeat_v);
+             1.0f, 1.0f);
 
     add_quad("corridor_wall_right",
              glm::vec3(+half_width, 0.0f, z1),
@@ -971,7 +1097,7 @@ void BuildCorridorAndAddToVirtualScene()
              glm::vec3(+half_width, corridor_height, z0),
              glm::vec3(+half_width, corridor_height, z1),
              glm::vec3(-1.0f, 0.0f, 0.0f),
-             wall_repeat_u, wall_repeat_v);
+             1.0f, 1.0f);
 
     GLuint vertex_buffer_id;
     glGenBuffers(1, &vertex_buffer_id);
