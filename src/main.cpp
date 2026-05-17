@@ -117,9 +117,10 @@ void PopMatrix(glm::mat4& M);
 // logo após a definição de main() neste arquivo.
 void BuildTrianglesAndAddToVirtualScene(ObjModel*); // Constrói representação de um ObjModel como malha de triângulos para renderização
 void BuildCorridorAndAddToVirtualScene(); // Constrói um corredor procedural simples (chão, teto e paredes)
+void BuildPostersAndAddToVirtualScene(); // Constrói quads para os posters na parede esquerda
 void ComputeNormals(ObjModel* model); // Computa normais de um ObjModel, caso não existam.
 void LoadShadersFromFiles(); // Carrega os shaders de vértice e fragmento, criando um programa de GPU
-void LoadTextureImage(const char* filename); // Função que carrega imagens de textura
+void LoadTextureImage(const char* filename, GLint wrap_s, GLint wrap_t); // Função que carrega imagens de textura
 void DrawVirtualObject(const char* object_name); // Desenha um objeto armazenado em g_VirtualScene
 GLuint LoadShader_Vertex(const char* filename);   // Carrega um vertex shader
 GLuint LoadShader_Fragment(const char* filename); // Carrega um fragment shader
@@ -226,10 +227,20 @@ GLint g_bbox_max_uniform;
 GLint g_camera_position_uniform;
 GLint g_light_position_uniform;
 GLint g_light_color_uniform;
+GLint g_poster_index_uniform;
 
 const int OBJ_WALL = 0;
 const int OBJ_FLOOR = 1;
 const int OBJ_CEILING = 2;
+const int OBJ_POSTER = 3;
+
+const float kCorridorHalfWidth = 2.0f;
+const float kCorridorHeight = 3.0f;
+const float kCorridorLength = 40.0f;
+const float kCorridorZ0 = 0.0f;
+const float kCorridorZ1 = -kCorridorLength;
+const int kPosterCount = 4;
+const char* kPosterNames[kPosterCount] = {"poster_0", "poster_1", "poster_2", "poster_3"};
 
 // Número de texturas carregadas pela função LoadTextureImage()
 GLuint g_NumLoadedTextures = 0;
@@ -309,10 +320,15 @@ int main(int argc, char* argv[])
     LoadShadersFromFiles();
 
     // Carregamos duas imagens para serem utilizadas como textura
-    LoadTextureImage("../../data/red_brick_diff_1k.jpg");      // TextureImage0
-    LoadTextureImage("../../data/rocky_terrain_02_diff_1k.jpg"); // TextureImage1
+    LoadTextureImage("../../data/wall.jpg", GL_REPEAT, GL_REPEAT); // TextureImage0
+    LoadTextureImage("../../data/rocky_terrain_02_diff_1k.jpg", GL_REPEAT, GL_REPEAT); // TextureImage1
+    LoadTextureImage("../../data/poster1.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // TexturePoster0
+    LoadTextureImage("../../data/poster2.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // TexturePoster1
+    LoadTextureImage("../../data/poster3.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // TexturePoster2
+    LoadTextureImage("../../data/poster4.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // TexturePoster3
 
     BuildCorridorAndAddToVirtualScene();
+    BuildPostersAndAddToVirtualScene();
 
     // Inicializamos o código para renderização de texto.
     TextRendering_Init();
@@ -368,7 +384,7 @@ int main(int argc, char* argv[])
         // Note que, no sistema de coordenadas da câmera, os planos near e far
         // estão no sentido negativo! Veja slides 176-204 do documento Aula_09_Projecoes.pdf.
         float nearplane = -0.1f;  // Posição do "near plane"
-        float farplane  = -30.0f; // Posição do "far plane"
+        float farplane  = -(kCorridorLength + 10.0f); // Posição do "far plane"
 
         if (g_UsePerspectiveProjection)
         {
@@ -398,7 +414,7 @@ int main(int argc, char* argv[])
         glUniformMatrix4fv(g_view_uniform       , 1 , GL_FALSE , glm::value_ptr(view));
         glUniformMatrix4fv(g_projection_uniform , 1 , GL_FALSE , glm::value_ptr(projection));
 
-        glm::vec4 light_position = glm::vec4(0.0f, 2.85f, -6.0f, 1.0f);
+        glm::vec4 light_position = glm::vec4(0.0f, kCorridorHeight - 0.15f, -kCorridorLength * 0.35f, 1.0f);
         glUniform4f(g_camera_position_uniform, camera_position_c.x, camera_position_c.y, camera_position_c.z, camera_position_c.w);
         glUniform4f(g_light_position_uniform, light_position.x, light_position.y, light_position.z, light_position.w);
         glUniform3f(g_light_color_uniform, 1.0f, 0.98f, 0.92f);
@@ -415,6 +431,13 @@ int main(int argc, char* argv[])
         glUniform1i(g_object_id_uniform, OBJ_WALL);
         DrawVirtualObject("corridor_wall_left");
         DrawVirtualObject("corridor_wall_right");
+
+        glUniform1i(g_object_id_uniform, OBJ_POSTER);
+        for (int i = 0; i < kPosterCount; ++i)
+        {
+            glUniform1i(g_poster_index_uniform, i);
+            DrawVirtualObject(kPosterNames[i]);
+        }
 
         // Imprimimos na tela os ângulos de Euler que controlam a rotação do
         // terceiro cubo.
@@ -450,7 +473,7 @@ int main(int argc, char* argv[])
 }
 
 // Função que carrega uma imagem para ser utilizada como textura
-void LoadTextureImage(const char* filename)
+void LoadTextureImage(const char* filename, GLint wrap_s, GLint wrap_t)
 {
     printf("Carregando imagem \"%s\"... ", filename);
 
@@ -476,8 +499,8 @@ void LoadTextureImage(const char* filename)
     glGenSamplers(1, &sampler_id);
 
     // Veja slides 95-96 do documento Aula_20_Mapeamento_de_Texturas.pdf
-    glSamplerParameteri(sampler_id, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glSamplerParameteri(sampler_id, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glSamplerParameteri(sampler_id, GL_TEXTURE_WRAP_S, wrap_s);
+    glSamplerParameteri(sampler_id, GL_TEXTURE_WRAP_T, wrap_t);
 
     // Parâmetros de amostragem da textura.
     glSamplerParameteri(sampler_id, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
@@ -534,6 +557,114 @@ void DrawVirtualObject(const char* object_name)
     glBindVertexArray(0);
 }
 
+void BuildPostersAndAddToVirtualScene()
+{
+    struct PosterVertex
+    {
+        float px, py, pz, pw;
+        float nx, ny, nz, nw;
+        float u, v;
+    };
+
+    std::vector<PosterVertex> vertices;
+    std::vector<GLuint> indices;
+
+    GLuint vertex_array_object_id;
+    glGenVertexArrays(1, &vertex_array_object_id);
+    glBindVertexArray(vertex_array_object_id);
+
+    auto add_poster_quad = [&](const std::string& name,
+                               glm::vec3 p0, glm::vec3 p1, glm::vec3 p2, glm::vec3 p3,
+                               glm::vec3 normal)
+    {
+        size_t first_index = indices.size();
+        GLuint base_vertex = static_cast<GLuint>(vertices.size());
+
+        auto push_vertex = [&](glm::vec3 p, float u, float v)
+        {
+            PosterVertex vertex;
+            vertex.px = p.x; vertex.py = p.y; vertex.pz = p.z; vertex.pw = 1.0f;
+            vertex.nx = normal.x; vertex.ny = normal.y; vertex.nz = normal.z; vertex.nw = 0.0f;
+            vertex.u = u; vertex.v = v;
+            vertices.push_back(vertex);
+        };
+
+        push_vertex(p0, 0.0f, 0.0f);
+        push_vertex(p1, 1.0f, 0.0f);
+        push_vertex(p2, 1.0f, 1.0f);
+        push_vertex(p3, 0.0f, 1.0f);
+
+        indices.push_back(base_vertex + 0);
+        indices.push_back(base_vertex + 1);
+        indices.push_back(base_vertex + 2);
+        indices.push_back(base_vertex + 0);
+        indices.push_back(base_vertex + 2);
+        indices.push_back(base_vertex + 3);
+
+        glm::vec3 bbox_min = p0;
+        glm::vec3 bbox_max = p0;
+        bbox_min.x = std::min(bbox_min.x, p1.x); bbox_min.y = std::min(bbox_min.y, p1.y); bbox_min.z = std::min(bbox_min.z, p1.z);
+        bbox_max.x = std::max(bbox_max.x, p1.x); bbox_max.y = std::max(bbox_max.y, p1.y); bbox_max.z = std::max(bbox_max.z, p1.z);
+        bbox_min.x = std::min(bbox_min.x, p2.x); bbox_min.y = std::min(bbox_min.y, p2.y); bbox_min.z = std::min(bbox_min.z, p2.z);
+        bbox_max.x = std::max(bbox_max.x, p2.x); bbox_max.y = std::max(bbox_max.y, p2.y); bbox_max.z = std::max(bbox_max.z, p2.z);
+        bbox_min.x = std::min(bbox_min.x, p3.x); bbox_min.y = std::min(bbox_min.y, p3.y); bbox_min.z = std::min(bbox_min.z, p3.z);
+        bbox_max.x = std::max(bbox_max.x, p3.x); bbox_max.y = std::max(bbox_max.y, p3.y); bbox_max.z = std::max(bbox_max.z, p3.z);
+
+        SceneObject object;
+        object.name = name;
+        object.first_index = first_index;
+        object.num_indices = 6;
+        object.rendering_mode = GL_TRIANGLES;
+        object.vertex_array_object_id = vertex_array_object_id;
+        object.bbox_min = bbox_min;
+        object.bbox_max = bbox_max;
+        g_VirtualScene[name] = object;
+    };
+
+    const float poster_width = 1.8f;
+    const float poster_height = 1.5f;
+    const float poster_center_y = 1.6f;
+    const float poster_offset = 0.02f;
+    const float poster_x = -kCorridorHalfWidth + poster_offset;
+    const float spacing = kCorridorLength / (kPosterCount + 1);
+
+    for (int i = 0; i < kPosterCount; ++i)
+    {
+        float center_z = -(i + 1) * spacing;
+        float z_near = center_z + poster_width * 0.5f;
+        float z_far = center_z - poster_width * 0.5f;
+        float y0 = poster_center_y - poster_height * 0.5f;
+        float y1 = poster_center_y + poster_height * 0.5f;
+
+        std::string name = "poster_" + std::to_string(i);
+        add_poster_quad(name,
+                        glm::vec3(poster_x, y0, z_near),
+                        glm::vec3(poster_x, y0, z_far),
+                        glm::vec3(poster_x, y1, z_far),
+                        glm::vec3(poster_x, y1, z_near),
+                        glm::vec3(1.0f, 0.0f, 0.0f));
+    }
+
+    GLuint vertex_buffer_id;
+    glGenBuffers(1, &vertex_buffer_id);
+    glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer_id);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(PosterVertex), vertices.data(), GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(PosterVertex), (void*)offsetof(PosterVertex, px));
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(PosterVertex), (void*)offsetof(PosterVertex, nx));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(PosterVertex), (void*)offsetof(PosterVertex, u));
+    glEnableVertexAttribArray(2);
+
+    GLuint index_buffer_id;
+    glGenBuffers(1, &index_buffer_id);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, index_buffer_id);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(GLuint), indices.data(), GL_STATIC_DRAW);
+
+    glBindVertexArray(0);
+}
+
 // Função que carrega os shaders de vértices e de fragmentos que serão
 // utilizados para renderização. Veja slides 180-200 do documento Aula_03_Rendering_Pipeline_Grafico.pdf.
 //
@@ -579,12 +710,16 @@ void LoadShadersFromFiles()
     g_camera_position_uniform = glGetUniformLocation(g_GpuProgramID, "camera_position");
     g_light_position_uniform = glGetUniformLocation(g_GpuProgramID, "light_position");
     g_light_color_uniform = glGetUniformLocation(g_GpuProgramID, "light_color");
+    g_poster_index_uniform = glGetUniformLocation(g_GpuProgramID, "poster_index");
 
     // Variáveis em "shader_fragment.glsl" para acesso das imagens de textura
     glUseProgram(g_GpuProgramID);
     glUniform1i(glGetUniformLocation(g_GpuProgramID, "TextureImage0"), 0);
     glUniform1i(glGetUniformLocation(g_GpuProgramID, "TextureImage1"), 1);
-    glUniform1i(glGetUniformLocation(g_GpuProgramID, "TextureImage2"), 2);
+    glUniform1i(glGetUniformLocation(g_GpuProgramID, "TexturePoster0"), 2);
+    glUniform1i(glGetUniformLocation(g_GpuProgramID, "TexturePoster1"), 3);
+    glUniform1i(glGetUniformLocation(g_GpuProgramID, "TexturePoster2"), 4);
+    glUniform1i(glGetUniformLocation(g_GpuProgramID, "TexturePoster3"), 5);
     glUseProgram(0);
 }
 
@@ -791,11 +926,20 @@ void BuildCorridorAndAddToVirtualScene()
         g_VirtualScene[name] = object;
     };
 
-    const float half_width = 2.0f;
-    const float corridor_height = 3.0f;
-    const float corridor_length = 12.0f;
-    const float z0 = 0.0f;
-    const float z1 = -corridor_length;
+    const float half_width = kCorridorHalfWidth;
+    const float corridor_height = kCorridorHeight;
+    const float corridor_length = kCorridorLength;
+    const float z0 = kCorridorZ0;
+    const float z1 = kCorridorZ1;
+
+    const float floor_tile_size = 2.0f;
+    const float wall_tile_size_z = 2.0f;
+    const float wall_tile_size_y = 1.5f;
+
+    const float floor_repeat_u = (2.0f * half_width) / floor_tile_size;
+    const float floor_repeat_v = corridor_length / floor_tile_size;
+    const float wall_repeat_u = corridor_length / wall_tile_size_z;
+    const float wall_repeat_v = corridor_height / wall_tile_size_y;
 
     add_quad("corridor_floor",
              glm::vec3(-half_width, 0.0f, z0),
@@ -803,7 +947,7 @@ void BuildCorridorAndAddToVirtualScene()
              glm::vec3(+half_width, 0.0f, z1),
              glm::vec3(-half_width, 0.0f, z1),
              glm::vec3(0.0f, 1.0f, 0.0f),
-             4.0f, 12.0f);
+             floor_repeat_u, floor_repeat_v);
 
     add_quad("corridor_ceiling",
              glm::vec3(-half_width, corridor_height, z1),
@@ -811,7 +955,7 @@ void BuildCorridorAndAddToVirtualScene()
              glm::vec3(+half_width, corridor_height, z0),
              glm::vec3(-half_width, corridor_height, z0),
              glm::vec3(0.0f, -1.0f, 0.0f),
-             4.0f, 12.0f);
+             floor_repeat_u, floor_repeat_v);
 
     add_quad("corridor_wall_left",
              glm::vec3(-half_width, 0.0f, z0),
@@ -819,7 +963,7 @@ void BuildCorridorAndAddToVirtualScene()
              glm::vec3(-half_width, corridor_height, z1),
              glm::vec3(-half_width, corridor_height, z0),
              glm::vec3(1.0f, 0.0f, 0.0f),
-             12.0f, 3.0f);
+             wall_repeat_u, wall_repeat_v);
 
     add_quad("corridor_wall_right",
              glm::vec3(+half_width, 0.0f, z1),
@@ -827,7 +971,7 @@ void BuildCorridorAndAddToVirtualScene()
              glm::vec3(+half_width, corridor_height, z0),
              glm::vec3(+half_width, corridor_height, z1),
              glm::vec3(-1.0f, 0.0f, 0.0f),
-             12.0f, 3.0f);
+             wall_repeat_u, wall_repeat_v);
 
     GLuint vertex_buffer_id;
     glGenBuffers(1, &vertex_buffer_id);
@@ -1170,8 +1314,11 @@ void UpdateCameraFromInput(GLFWwindow* window, float delta_time)
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) g_CameraPosition += right * step;
 
     g_CameraPosition.y = 1.6f;
-    g_CameraPosition.x = std::max(-1.85f, std::min(1.85f, g_CameraPosition.x));
-    g_CameraPosition.z = std::max(-11.7f, std::min(0.8f, g_CameraPosition.z));
+    const float x_limit = kCorridorHalfWidth - 0.15f;
+    const float z_min = kCorridorZ1 + 0.3f;
+    const float z_max = 0.8f;
+    g_CameraPosition.x = std::max(-x_limit, std::min(x_limit, g_CameraPosition.x));
+    g_CameraPosition.z = std::max(z_min, std::min(z_max, g_CameraPosition.z));
     g_CameraPosition.w = 1.0f;
 }
 

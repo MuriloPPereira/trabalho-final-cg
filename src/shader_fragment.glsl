@@ -8,6 +8,11 @@ in vec2 texcoords;
 uniform int object_id;
 uniform sampler2D TextureImage0; // parede
 uniform sampler2D TextureImage1; // opcional para chão/teto
+uniform sampler2D TexturePoster0;
+uniform sampler2D TexturePoster1;
+uniform sampler2D TexturePoster2;
+uniform sampler2D TexturePoster3;
+uniform int poster_index;
 
 uniform vec4 camera_position;
 uniform vec4 light_position;
@@ -18,6 +23,7 @@ out vec4 color;
 #define OBJ_WALL    0
 #define OBJ_FLOOR   1
 #define OBJ_CEILING 2
+#define OBJ_POSTER  3
 
 void main()
 {
@@ -36,6 +42,20 @@ void main()
         albedo = texture(TextureImage1, texcoords).rgb * 0.7;
         Ks = vec3(0.08, 0.08, 0.08);
         shininess = 10.0;
+    }
+    else if (object_id == OBJ_POSTER)
+    {
+        if (poster_index == 0)
+            albedo = texture(TexturePoster0, texcoords).rgb;
+        else if (poster_index == 1)
+            albedo = texture(TexturePoster1, texcoords).rgb;
+        else if (poster_index == 2)
+            albedo = texture(TexturePoster2, texcoords).rgb;
+        else
+            albedo = texture(TexturePoster3, texcoords).rgb;
+
+        Ks = vec3(0.20, 0.20, 0.20);
+        shininess = 24.0;
     }
     else
     {
