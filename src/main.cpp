@@ -260,7 +260,7 @@ GLint g_material_ambient_strength_uniform;
 GLint g_material_uv_scale_uniform;
 GLint g_num_lights_uniform;
 
-const int kMaxLights = 12;
+const int kMaxLights = 24;
 GLint g_light_position_uniforms[kMaxLights];
 GLint g_light_color_uniforms[kMaxLights];
 GLint g_light_ambient_strength_uniforms[kMaxLights];
@@ -421,29 +421,13 @@ int main(int argc, char* argv[])
         poster_material.uv_scale = glm::vec2(1.0f, 1.0f);
         poster_materials.push_back(poster_material);
     }
-
-    const float corridor2_offset_x = -(2.0f * kCorridorHalfWidth + kConnectorLength);
+const float corridor2_offset_x = -(2.0f * kCorridorHalfWidth + kConnectorLength);
+    const float second_corridor_z_offset = kCorridorZ1 - kCornerLength; 
+    const glm::vec2 block_offset(corridor2_offset_x, second_corridor_z_offset);
     const float connector_center_z = kCorridorZ1 - 0.5f * kCornerLength;
-    // Procure por esta linha no main() e altere-a
-    const float second_corridor_z_offset = kCorridorZ1 - kCornerLength; // Fica exatamente em -44.0f
 
     std::vector<PointLight> corridor_lights;
-    corridor_lights.reserve(kLampCount);
-
-    const float first_corridor_spacing = kCorridorLength / 5.0f;
-    for (int i = 0; i < 4; ++i)
-    {
-        PointLight light;
-        light.position = glm::vec3(0.0f, kCorridorHeight - 0.15f, -(i + 1) * first_corridor_spacing);
-        light.color = glm::vec3(1.0f, 0.98f, 0.92f);
-        light.ambient_strength = 0.03f;
-        light.diffuse_strength = 1.0f;
-        light.specular_strength = 1.0f;
-        light.constant = 1.0f;
-        light.linear = 0.14f;
-        light.quadratic = 0.07f;
-        corridor_lights.push_back(light);
-    }
+    corridor_lights.reserve(kMaxLights);
 
     auto make_light = [&](const glm::vec3& position)
     {
@@ -459,26 +443,28 @@ int main(int argc, char* argv[])
         return light;
     };
 
-    // Canto esquerdo e canto direito.
-    corridor_lights.push_back(make_light(glm::vec3(0.0f, kCorridorHeight - 0.15f, connector_center_z)));
-    corridor_lights.push_back(make_light(glm::vec3(corridor2_offset_x, kCorridorHeight - 0.15f, connector_center_z)));
-
-    // Corredor conector curto.
-    corridor_lights.push_back(make_light(glm::vec3(-kCorridorHalfWidth - (kConnectorLength / 3.0f), kCorridorHeight - 0.15f, connector_center_z)));
-    corridor_lights.push_back(make_light(glm::vec3(-kCorridorHalfWidth - (2.0f * kConnectorLength / 3.0f), kCorridorHeight - 0.15f, connector_center_z)));
-
-    const float second_corridor_spacing = kCorridorLength / 5.0f;
-    for (int i = 0; i < 4; ++i)
+    // Lambda to generate the 6 lights for a single modular block
+    auto add_block_lights = [&](const glm::vec3& offset)
     {
-        PointLight light = make_light(glm::vec3(corridor2_offset_x,
-                                                kCorridorHeight - 0.15f,
-                                                second_corridor_z_offset - (i + 1) * second_corridor_spacing));
-        corridor_lights.push_back(light);
-    }
+        // 4 lights in the straight corridor
+        const float straight_spacing = kCorridorLength / 5.0f;
+        for (int i = 0; i < 4; ++i)
+        {
+            corridor_lights.push_back(make_light(offset + glm::vec3(0.0f, kCorridorHeight - 0.15f, -(i + 1) * straight_spacing)));
+        }
+
+        // 2 lights in the connector corridor
+        corridor_lights.push_back(make_light(offset + glm::vec3(-kCorridorHalfWidth - (kConnectorLength / 3.0f), kCorridorHeight - 0.15f, connector_center_z)));
+        corridor_lights.push_back(make_light(offset + glm::vec3(-kCorridorHalfWidth - (2.0f * kConnectorLength / 3.0f), kCorridorHeight - 0.15f, connector_center_z)));
+    };
+
+    // Apply lights to all three treadmill tiles
+    add_block_lights(glm::vec3(-block_offset.x, 0.0f, -block_offset.y)); // Block -1 (Behind)
+    add_block_lights(glm::vec3(0.0f, 0.0f, 0.0f));                       // Block 0 (Center)
+    add_block_lights(glm::vec3(block_offset.x, 0.0f, block_offset.y));   // Block 1 (Ahead)
 
     // Inicializamos o código para renderização de texto.
     TextRendering_Init();
-
     // Habilitamos o Z-buffer. Veja slides 104-116 do documento Aula_09_Projecoes.pdf.
     glEnable(GL_DEPTH_TEST);
 
@@ -552,8 +538,6 @@ int main(int argc, char* argv[])
             projection = Matrix_Orthographic(l, r, b, t, nearplane, farplane);
         }
 
-        glm::mat4 model = Matrix_Identity(); // Transformação identidade de modelagem
-
         // Enviamos as matrizes "view" e "projection" para a placa de vídeo
         // (GPU). Veja o arquivo "shader_vertex.glsl", onde estas são
         // efetivamente aplicadas em todos os pontos.
@@ -611,40 +595,45 @@ int main(int argc, char* argv[])
         corner_ceiling_material.uv_scale.y *= corner_uv_factor;
         corner_wall_material.uv_scale.x *= corner_uv_factor;
 
-        // 1) Corredor reto inicial (identidade).
-        draw_straight_corridor(Matrix_Identity(), true, floor_material, ceiling_material, wall_material);
+        // (1) Modular block (tile): corredor reto + quina esquerda + conector + quina direita.
+        // O próximo tile começa em (corridor2_offset_x, second_corridor_z_offset) relativo ao tile atual.
+        auto draw_modular_block = [&](const glm::mat4& base_transform)
+        {
+            // Corredor reto principal (eixo -Z) deste tile.
+            draw_straight_corridor(base_transform, true, floor_material, ceiling_material, wall_material);
 
-        // 2) Quina de entrada (vira à esquerda), deslocada para o final do primeiro corredor.
-        model = glm::translate(Matrix_Identity(), glm::vec3(0.0f, 0.0f, kCorridorZ1));
-        glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
-        
-        ApplyMaterial(corner_floor_material);   DrawVirtualObject("corner_left_floor");
-        ApplyMaterial(corner_ceiling_material); DrawVirtualObject("corner_left_ceiling");
-        ApplyMaterial(corner_wall_material);    
-        DrawVirtualObject("corner_left_wall_back");
-        DrawVirtualObject("corner_left_wall_right");
+            // Quina esquerda no final do corredor: base_transform * T(0,0,kCorridorZ1).
+            glm::mat4 m = base_transform * Matrix_Translate(0.0f, 0.0f, kCorridorZ1);
+            glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(m));
 
-        // 3) Corredor conector curto (eixo -X).
-        model = glm::translate(Matrix_Identity(),
-                               glm::vec3(-kCorridorHalfWidth, 0.0f, connector_center_z));
-        model = glm::rotate(model, glm::radians(+90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-        model = glm::scale(model, glm::vec3(1.0f, 1.0f, kConnectorLength / kCorridorLength));
-        draw_straight_corridor(model, false, connector_floor_material, connector_ceiling_material, connector_wall_material);
+            ApplyMaterial(corner_floor_material);   DrawVirtualObject("corner_left_floor");
+            ApplyMaterial(corner_ceiling_material); DrawVirtualObject("corner_left_ceiling");
+            ApplyMaterial(corner_wall_material);
+            DrawVirtualObject("corner_left_wall_back");
+            DrawVirtualObject("corner_left_wall_right");
 
-        // 4) Quina de saída (vira à direita).
-        model = glm::translate(Matrix_Identity(), glm::vec3(corridor2_offset_x, 0.0f, kCorridorZ1));
-        glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
-        
-        ApplyMaterial(corner_floor_material);   DrawVirtualObject("corner_right_floor");
-        ApplyMaterial(corner_ceiling_material); DrawVirtualObject("corner_right_ceiling");
-        ApplyMaterial(corner_wall_material);    
-        DrawVirtualObject("corner_right_wall_front");
-        DrawVirtualObject("corner_right_wall_left");
+            // Conector curto (eixo -X): base_transform * T(...) * R_y(+90°) * S(...).
+            m = base_transform
+              * Matrix_Translate(-kCorridorHalfWidth, 0.0f, connector_center_z)
+              * Matrix_Rotate_Y(+3.141592f / 2.0f)
+              * Matrix_Scale(1.0f, 1.0f, kConnectorLength / kCorridorLength);
+            draw_straight_corridor(m, false, connector_floor_material, connector_ceiling_material, connector_wall_material);
 
-        // 5) Segundo corredor principal, idêntico ao primeiro (com posters).
-        model = glm::translate(Matrix_Identity(),
-                               glm::vec3(corridor2_offset_x, 0.0f, second_corridor_z_offset));
-        draw_straight_corridor(model, true, floor_material, ceiling_material, wall_material);
+            // Quina direita no fim do conector: base_transform * T(corridor2_offset_x,0,kCorridorZ1).
+            m = base_transform * Matrix_Translate(corridor2_offset_x, 0.0f, kCorridorZ1);
+            glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(m));
+
+            ApplyMaterial(corner_floor_material);   DrawVirtualObject("corner_right_floor");
+            ApplyMaterial(corner_ceiling_material); DrawVirtualObject("corner_right_ceiling");
+            ApplyMaterial(corner_wall_material);
+            DrawVirtualObject("corner_right_wall_front");
+            DrawVirtualObject("corner_right_wall_left");
+        };
+
+        // (2) 3-Tile Treadmill: desenha o bloco anterior, o atual e o próximo.
+        draw_modular_block(Matrix_Translate(-corridor2_offset_x, 0.0f, -second_corridor_z_offset)); // Block -1 (atrás)
+        draw_modular_block(Matrix_Identity());                                                      // Block 0 (centro)
+        draw_modular_block(Matrix_Translate(corridor2_offset_x, 0.0f, second_corridor_z_offset));    // Block +1 (à frente)
 
         // Imprimimos na tela os ângulos de Euler que controlam a rotação do
         // terceiro cubo.
@@ -1593,7 +1582,7 @@ glm::vec4 ComputeCameraFrontVector()
 
 void UpdateCameraFromInput(GLFWwindow* window, float delta_time)
 {
-    float movement_speed = 2.8f;
+    float movement_speed = 4.0f;
     float step = movement_speed * delta_time;
 
     glm::vec4 front = ComputeCameraFrontVector();
@@ -1621,9 +1610,12 @@ void UpdateCameraFromInput(GLFWwindow* window, float delta_time)
     const float first_z_max = 0.8f;
 
     const float corridor2_offset_x = -(2.0f * kCorridorHalfWidth + kConnectorLength);
+    const float second_corridor_z_offset = kCorridorZ1 - kCornerLength; // -44.0f (deslocamento entre blocos)
+    const glm::vec2 block_offset(corridor2_offset_x, second_corridor_z_offset);
     const float connector_center_z = kCorridorZ1 - 0.5f * kCornerLength;
     const float connector_half_width = kCorridorHalfWidth - player_radius;
 
+    // Todas as caixas abaixo estão no espaço local do "Bloco 0" (tile central).
     const WalkableBox2D corridor1 = {-first_x_limit, +first_x_limit, kCorridorZ1, first_z_max};
     const WalkableBox2D corner_left = {-kCorridorHalfWidth, +kCorridorHalfWidth,
                                        kCorridorZ1 - kCornerLength + player_radius, kCorridorZ1};
@@ -1631,8 +1623,6 @@ void UpdateCameraFromInput(GLFWwindow* window, float delta_time)
                                      connector_center_z - connector_half_width, connector_center_z + connector_half_width};
     const WalkableBox2D corner_right = {corridor2_offset_x - kCorridorHalfWidth, corridor2_offset_x + kCorridorHalfWidth,
                                         kCorridorZ1 - kCornerLength + player_radius, kCorridorZ1};
-    const WalkableBox2D corridor2 = {corridor2_offset_x - first_x_limit, corridor2_offset_x + first_x_limit,
-                                     kCorridorZ1 - kCorridorLength + player_radius, kCorridorZ1};
 
     auto clampf = [](float value, float min_value, float max_value)
     {
@@ -1650,12 +1640,21 @@ void UpdateCameraFromInput(GLFWwindow* window, float delta_time)
                          clampf(p.y, box.min_z, box.max_z));
     };
 
-    glm::vec2 p(g_CameraPosition.x, g_CameraPosition.z);
+    glm::vec2 p_world(g_CameraPosition.x, g_CameraPosition.z);
+    glm::vec2 p = p_world;
+
+    // (7) Collision wrapping: mapeia a posição do mundo para o espaço local do Bloco 0
+    // usando o mesmo deslocamento geométrico entre tiles.
+    int block_index = 0;
+    const float wrap_min_z = kCorridorZ1 - kCornerLength + player_radius; // menor z caminhável dentro de um bloco
+    const float wrap_max_z = first_z_max;                                 // maior z caminhável dentro de um bloco
+    while (p.y < wrap_min_z) { p -= block_offset; ++block_index; } // veio do Bloco +1 (à frente)
+    while (p.y > wrap_max_z) { p += block_offset; --block_index; } // veio do Bloco -1 (atrás)
+
     if (!inside_box(corridor1, p.x, p.y) &&
         !inside_box(corner_left, p.x, p.y) &&
         !inside_box(connector, p.x, p.y) &&
-        !inside_box(corner_right, p.x, p.y) &&
-        !inside_box(corridor2, p.x, p.y))
+        !inside_box(corner_right, p.x, p.y))
     {
         glm::vec2 best = closest_point(corridor1, p);
         float best_dist2 = (best.x - p.x) * (best.x - p.x) + (best.y - p.y) * (best.y - p.y);
@@ -1684,18 +1683,27 @@ void UpdateCameraFromInput(GLFWwindow* window, float delta_time)
             best_dist2 = dist2;
         }
 
-        candidate = closest_point(corridor2, p);
-        dist2 = (candidate.x - p.x) * (candidate.x - p.x) + (candidate.y - p.y) * (candidate.y - p.y);
-        if (dist2 < best_dist2)
-        {
-            best = candidate;
-        }
-
         p = best;
     }
 
-    g_CameraPosition.x = p.x;
-    g_CameraPosition.z = p.y;
+    // (5-6) Bi-directional treadmill recentering: mantém o jogador perto do Bloco 0.
+    // Quando ele avança "demais" no Bloco +1, subtrai o offset do bloco;
+    // quando ele recua "demais" no Bloco -1, soma o offset.
+    const float recenter_plane_z = 0.5f * kCorridorZ1; // -20.0f (meio do corredor reto)
+    p_world = p + (float)block_index * block_offset;
+    while (block_index > 0 && p.y < recenter_plane_z)
+    {
+        p_world -= block_offset; // traz do Bloco +1 para o Bloco 0 (subtrai (corridor2_offset_x, second_corridor_z_offset))
+        --block_index;
+    }
+    while (block_index < 0 && p.y > recenter_plane_z)
+    {
+        p_world += block_offset; // traz do Bloco -1 para o Bloco 0 (soma (corridor2_offset_x, second_corridor_z_offset))
+        ++block_index;
+    }
+
+    g_CameraPosition.x = p_world.x;
+    g_CameraPosition.z = p_world.y;
     g_CameraPosition.w = 1.0f;
 }
 
