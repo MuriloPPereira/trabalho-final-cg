@@ -110,7 +110,6 @@ void TextRendering_Init()
     glCheckError();
 
     textprogram_id = CreateGpuProgram(textvertexshader_id, textfragmentshader_id);
-    glLinkProgram(textprogram_id);
     glCheckError();
 
     GLuint texttex_uniform;

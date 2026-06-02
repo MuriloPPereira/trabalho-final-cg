@@ -28,7 +28,7 @@ struct PointLight
     float quadratic;
 };
 
-#define MAX_LIGHTS 24
+#define MAX_LIGHTS 30
 
 uniform int num_lights;
 uniform Material material;

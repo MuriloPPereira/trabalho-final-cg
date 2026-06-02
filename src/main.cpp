@@ -40,7 +40,6 @@
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
-#include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
 // Headers da biblioteca para carregar modelos obj
@@ -226,10 +225,60 @@ bool g_RightMouseButtonPressed = false; // Análogo para botão direito do mouse
 bool g_MiddleMouseButtonPressed = false; // Análogo para botão do meio do mouse
 
 // Câmera em primeira pessoa.
-glm::vec4 g_CameraPosition = glm::vec4(0.0f, 1.6f, 1.0f, 1.0f);
+glm::vec4 g_CameraPosition = glm::vec4(0.0f, 1.6f, -1.0f, 1.0f);
 float g_CameraYaw = 0.0f;
 float g_CameraPitch = 0.0f;
 bool g_FirstMouseInput = true;
+
+struct CorridorState
+{
+    int id;
+    int entry_side;
+    int logical_forward_sign;
+    int poster_shift;
+    bool has_anomaly;
+};
+
+int g_LogicalCorridorStep = 0;
+int g_LastEnteredPhysicalSide = 0;
+CorridorState g_CurrentCorridorState = {0, +1, +1, 0, false};
+CorridorState g_NegativeCandidateCorridorState = {1, -1, -1, 1, false};
+CorridorState g_PositiveCandidateCorridorState = {1, +1, +1, 2, false};
+
+CorridorState MakeCorridorState(int id, int entry_side, int salt)
+{
+    unsigned int h = (unsigned int)(id * 747796405u) ^ (unsigned int)(salt * 2891336453u);
+    h = (h ^ (h >> 16)) * 2246822519u;
+    h = (h ^ (h >> 13)) * 3266489917u;
+    h = h ^ (h >> 16);
+
+    CorridorState state;
+    state.id = id;
+    state.entry_side = entry_side;
+    state.logical_forward_sign = (entry_side < 0) ? -1 : +1;
+    state.poster_shift = (int)(h % 4u);
+    state.has_anomaly = false; // Hook for later anomaly selection.
+    return state;
+}
+
+void RefreshCandidateCorridorStates()
+{
+    g_NegativeCandidateCorridorState = MakeCorridorState(g_LogicalCorridorStep + 1, -1, 17);
+    g_PositiveCandidateCorridorState = MakeCorridorState(g_LogicalCorridorStep + 1, +1, 53);
+}
+
+void ActivateNewLogicalCorridor(int physical_side)
+{
+    g_LastEnteredPhysicalSide = physical_side;
+    ++g_LogicalCorridorStep;
+
+    if (physical_side < 0)
+        g_CurrentCorridorState = g_NegativeCandidateCorridorState;
+    else
+        g_CurrentCorridorState = g_PositiveCandidateCorridorState;
+
+    RefreshCandidateCorridorStates();
+}
 
 // Variáveis que controlam rotação do antebraço
 float g_ForearmAngleZ = 0.0f;
@@ -260,7 +309,7 @@ GLint g_material_ambient_strength_uniform;
 GLint g_material_uv_scale_uniform;
 GLint g_num_lights_uniform;
 
-const int kMaxLights = 24;
+const int kMaxLights = 30;
 GLint g_light_position_uniforms[kMaxLights];
 GLint g_light_color_uniforms[kMaxLights];
 GLint g_light_ambient_strength_uniforms[kMaxLights];
@@ -276,7 +325,7 @@ const float kCorridorLength = 40.0f;
 const float kCorridorZ0 = 0.0f;
 const float kCorridorZ1 = -kCorridorLength;
 const float kCornerLength = 4.0f;
-const float kConnectorLength = 10.0f;
+const float kConnectorLength = kCorridorLength / 4.0f;
 const int kPosterCount = 4;
 const int kLampCount = 12;
 const char* kPosterNames[kPosterCount] = {"poster_0", "poster_1", "poster_2", "poster_3"};
@@ -421,10 +470,21 @@ int main(int argc, char* argv[])
         poster_material.uv_scale = glm::vec2(1.0f, 1.0f);
         poster_materials.push_back(poster_material);
     }
-const float corridor2_offset_x = -(2.0f * kCorridorHalfWidth + kConnectorLength);
-    const float second_corridor_z_offset = kCorridorZ1 - kCornerLength; 
+    const float corridor2_offset_x = -(4.0f * kCorridorHalfWidth + kConnectorLength);
+    const float second_corridor_z_offset = kCorridorZ1 - 2.0f * kCornerLength - kConnectorLength;
     const glm::vec2 block_offset(corridor2_offset_x, second_corridor_z_offset);
-    const float connector_center_z = kCorridorZ1 - 0.5f * kCornerLength;
+    const float turn_z0 = kCorridorZ1;
+    const float turn_z1 = turn_z0 - kCornerLength;
+    const float short1_center_z = turn_z0 - 0.5f * kCornerLength;
+    const float short1_start_x = -kCorridorHalfWidth;
+    const float short1_end_x = short1_start_x - kConnectorLength;
+    const float turn1_right_x = short1_end_x - kCorridorHalfWidth;
+    const float short2_start_z = turn_z1;
+    const float short2_end_z = short2_start_z - kConnectorLength;
+    const float turn2_left_x = turn1_right_x;
+    const float turn2_left_z = short2_end_z;
+    const float turn2_right_x = turn2_left_x - 2.0f * kCorridorHalfWidth;
+    const float turn2_right_z = turn2_left_z;
 
     std::vector<PointLight> corridor_lights;
     corridor_lights.reserve(kMaxLights);
@@ -443,25 +503,33 @@ const float corridor2_offset_x = -(2.0f * kCorridorHalfWidth + kConnectorLength)
         return light;
     };
 
-    // Lambda to generate the 6 lights for a single modular block
-    auto add_block_lights = [&](const glm::vec3& offset)
+    auto make_block_light = [&](const glm::mat4& block_transform, const glm::vec3& local_position)
     {
-        // 4 lights in the straight corridor
+        glm::vec4 world_position = block_transform * glm::vec4(local_position.x, local_position.y, local_position.z, 1.0f);
+        return make_light(glm::vec3(world_position.x, world_position.y, world_position.z));
+    };
+
+    // Lambda to generate the lights for one complete modular block.
+    auto add_block_lights = [&](const glm::mat4& block_transform)
+    {
         const float straight_spacing = kCorridorLength / 5.0f;
         for (int i = 0; i < 4; ++i)
         {
-            corridor_lights.push_back(make_light(offset + glm::vec3(0.0f, kCorridorHeight - 0.15f, -(i + 1) * straight_spacing)));
+            corridor_lights.push_back(make_block_light(block_transform, glm::vec3(0.0f, kCorridorHeight - 0.15f, -(i + 1) * straight_spacing)));
         }
 
-        // 2 lights in the connector corridor
-        corridor_lights.push_back(make_light(offset + glm::vec3(-kCorridorHalfWidth - (kConnectorLength / 3.0f), kCorridorHeight - 0.15f, connector_center_z)));
-        corridor_lights.push_back(make_light(offset + glm::vec3(-kCorridorHalfWidth - (2.0f * kConnectorLength / 3.0f), kCorridorHeight - 0.15f, connector_center_z)));
+        corridor_lights.push_back(make_block_light(block_transform, glm::vec3(0.0f, kCorridorHeight - 0.15f, turn_z0 - 0.5f * kCornerLength)));
+        corridor_lights.push_back(make_block_light(block_transform, glm::vec3(short1_start_x - 0.5f * kConnectorLength, kCorridorHeight - 0.15f, short1_center_z)));
+        corridor_lights.push_back(make_block_light(block_transform, glm::vec3(turn1_right_x, kCorridorHeight - 0.15f, turn_z0 - 0.5f * kCornerLength)));
+        corridor_lights.push_back(make_block_light(block_transform, glm::vec3(turn1_right_x, kCorridorHeight - 0.15f, short2_start_z - 0.5f * kConnectorLength)));
+        corridor_lights.push_back(make_block_light(block_transform, glm::vec3(turn2_left_x, kCorridorHeight - 0.15f, turn2_left_z - 0.5f * kCornerLength)));
+        corridor_lights.push_back(make_block_light(block_transform, glm::vec3(turn2_right_x, kCorridorHeight - 0.15f, turn2_right_z - 0.5f * kCornerLength)));
     };
 
-    // Apply lights to all three treadmill tiles
-    add_block_lights(glm::vec3(-block_offset.x, 0.0f, -block_offset.y)); // Block -1 (Behind)
-    add_block_lights(glm::vec3(0.0f, 0.0f, 0.0f));                       // Block 0 (Center)
-    add_block_lights(glm::vec3(block_offset.x, 0.0f, block_offset.y));   // Block 1 (Ahead)
+    // Apply lights to the three physical treadmill tiles.
+    add_block_lights(Matrix_Translate(-block_offset.x, 0.0f, -block_offset.y)); // Negative-side candidate
+    add_block_lights(Matrix_Identity());                                        // Current physical block
+    add_block_lights(Matrix_Translate(block_offset.x, 0.0f, block_offset.y));   // Positive-side candidate
 
     // Inicializamos o código para renderização de texto.
     TextRendering_Init();
@@ -549,6 +617,7 @@ const float corridor2_offset_x = -(2.0f * kCorridorHalfWidth + kConnectorLength)
 
         auto draw_straight_corridor = [&](const glm::mat4& corridor_model,
                                           bool draw_posters,
+                                          const CorridorState& corridor_state,
                                           const Material& floor_mat,
                                           const Material& ceiling_mat,
                                           const Material& wall_mat)
@@ -567,10 +636,28 @@ const float corridor2_offset_x = -(2.0f * kCorridorHalfWidth + kConnectorLength)
 
             if (draw_posters)
             {
+                const float poster_width = 1.8f;
+                const float poster_height = 1.5f;
+                const float poster_center_y = 1.6f;
+                const float poster_offset = 0.02f;
+                const int poster_wall_sign = -corridor_state.logical_forward_sign;
+                const float poster_x = (float)poster_wall_sign * (kCorridorHalfWidth - poster_offset);
+                const float spacing = kCorridorLength / (kPosterCount + 1);
+                const glm::mat4 poster_facing = (poster_wall_sign < 0)
+                                              ? Matrix_Identity()
+                                              : Matrix_Rotate_Y(-3.141592f);
+
                 for (int i = 0; i < kPosterCount; ++i)
                 {
-                    ApplyMaterial(poster_materials[i]);
-                    DrawVirtualObject(kPosterNames[i]);
+                    const float center_z = -(i + 1) * spacing;
+                    const int poster_index = (i + corridor_state.poster_shift) % kPosterCount;
+                    glm::mat4 poster_model = corridor_model
+                                           * Matrix_Translate(poster_x, poster_center_y, center_z)
+                                           * poster_facing;
+                    glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(poster_model));
+
+                    ApplyMaterial(poster_materials[poster_index]);
+                    DrawVirtualObject(kPosterNames[poster_index]);
                 }
             }
         };
@@ -597,13 +684,14 @@ const float corridor2_offset_x = -(2.0f * kCorridorHalfWidth + kConnectorLength)
 
         // (1) Modular block (tile): corredor reto + quina esquerda + conector + quina direita.
         // O próximo tile começa em (corridor2_offset_x, second_corridor_z_offset) relativo ao tile atual.
-        auto draw_modular_block = [&](const glm::mat4& base_transform)
+        auto draw_modular_block = [&](const glm::mat4& base_transform,
+                                      const CorridorState& corridor_state)
         {
             // Corredor reto principal (eixo -Z) deste tile.
-            draw_straight_corridor(base_transform, true, floor_material, ceiling_material, wall_material);
+            draw_straight_corridor(base_transform, true, corridor_state, floor_material, ceiling_material, wall_material);
 
             // Quina esquerda no final do corredor: base_transform * T(0,0,kCorridorZ1).
-            glm::mat4 m = base_transform * Matrix_Translate(0.0f, 0.0f, kCorridorZ1);
+            glm::mat4 m = base_transform * Matrix_Translate(0.0f, 0.0f, turn_z0);
             glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(m));
 
             ApplyMaterial(corner_floor_material);   DrawVirtualObject("corner_left_floor");
@@ -614,13 +702,13 @@ const float corridor2_offset_x = -(2.0f * kCorridorHalfWidth + kConnectorLength)
 
             // Conector curto (eixo -X): base_transform * T(...) * R_y(+90°) * S(...).
             m = base_transform
-              * Matrix_Translate(-kCorridorHalfWidth, 0.0f, connector_center_z)
-              * Matrix_Rotate_Y(+3.141592f / 2.0f)
+              * Matrix_Translate(short1_start_x, 0.0f, short1_center_z)
+              * Matrix_Rotate_Y(3.141592f / 2.0f)
               * Matrix_Scale(1.0f, 1.0f, kConnectorLength / kCorridorLength);
-            draw_straight_corridor(m, false, connector_floor_material, connector_ceiling_material, connector_wall_material);
+            draw_straight_corridor(m, false, corridor_state, connector_floor_material, connector_ceiling_material, connector_wall_material);
 
             // Quina direita no fim do conector: base_transform * T(corridor2_offset_x,0,kCorridorZ1).
-            m = base_transform * Matrix_Translate(corridor2_offset_x, 0.0f, kCorridorZ1);
+            m = base_transform * Matrix_Translate(turn1_right_x, 0.0f, turn_z0);
             glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(m));
 
             ApplyMaterial(corner_floor_material);   DrawVirtualObject("corner_right_floor");
@@ -628,12 +716,36 @@ const float corridor2_offset_x = -(2.0f * kCorridorHalfWidth + kConnectorLength)
             ApplyMaterial(corner_wall_material);
             DrawVirtualObject("corner_right_wall_front");
             DrawVirtualObject("corner_right_wall_left");
+
+            m = base_transform
+              * Matrix_Translate(turn1_right_x, 0.0f, short2_start_z)
+              * Matrix_Scale(1.0f, 1.0f, kConnectorLength / kCorridorLength);
+            draw_straight_corridor(m, false, corridor_state, connector_floor_material, connector_ceiling_material, connector_wall_material);
+
+            m = base_transform * Matrix_Translate(turn2_left_x, 0.0f, turn2_left_z);
+            glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(m));
+            ApplyMaterial(corner_floor_material);   DrawVirtualObject("corner_left_floor");
+            ApplyMaterial(corner_ceiling_material); DrawVirtualObject("corner_left_ceiling");
+            ApplyMaterial(corner_wall_material);
+            DrawVirtualObject("corner_left_wall_back");
+            DrawVirtualObject("corner_left_wall_right");
+
+            m = base_transform * Matrix_Translate(turn2_right_x, 0.0f, turn2_right_z);
+            glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(m));
+            ApplyMaterial(corner_floor_material);   DrawVirtualObject("corner_right_floor");
+            ApplyMaterial(corner_ceiling_material); DrawVirtualObject("corner_right_ceiling");
+            ApplyMaterial(corner_wall_material);
+            DrawVirtualObject("corner_right_wall_front");
+            DrawVirtualObject("corner_right_wall_left");
         };
 
-        // (2) 3-Tile Treadmill: desenha o bloco anterior, o atual e o próximo.
-        draw_modular_block(Matrix_Translate(-corridor2_offset_x, 0.0f, -second_corridor_z_offset)); // Block -1 (atrás)
-        draw_modular_block(Matrix_Identity());                                                      // Block 0 (centro)
-        draw_modular_block(Matrix_Translate(corridor2_offset_x, 0.0f, second_corridor_z_offset));    // Block +1 (à frente)
+        // (2) 3-Tile Treadmill: side blocks are fresh candidates, not history.
+        draw_modular_block(Matrix_Translate(-block_offset.x, 0.0f, -block_offset.y),
+                           g_NegativeCandidateCorridorState);
+        draw_modular_block(Matrix_Identity(),
+                           g_CurrentCorridorState);
+        draw_modular_block(Matrix_Translate(block_offset.x, 0.0f, block_offset.y),
+                           g_PositiveCandidateCorridorState);
 
         // Imprimimos na tela os ângulos de Euler que controlam a rotação do
         // terceiro cubo.
@@ -814,10 +926,11 @@ void BuildPostersAndAddToVirtualScene()
             vertices.push_back(vertex);
         };
 
-        push_vertex(p0, 0.0f, 0.0f);
-        push_vertex(p1, 1.0f, 0.0f);
-        push_vertex(p2, 1.0f, 1.0f);
-        push_vertex(p3, 0.0f, 1.0f);
+        // Rotate the poster image 90 degrees counterclockwise on its own axis.
+        push_vertex(p0, 1.0f, 0.0f);
+        push_vertex(p1, 1.0f, 1.0f);
+        push_vertex(p2, 0.0f, 1.0f);
+        push_vertex(p3, 0.0f, 0.0f);
 
         indices.push_back(base_vertex + 0);
         indices.push_back(base_vertex + 1);
@@ -848,25 +961,20 @@ void BuildPostersAndAddToVirtualScene()
 
     const float poster_width = 1.8f;
     const float poster_height = 1.5f;
-    const float poster_center_y = 1.6f;
-    const float poster_offset = 0.02f;
-    const float poster_x = -kCorridorHalfWidth + poster_offset;
-    const float spacing = kCorridorLength / (kPosterCount + 1);
 
     for (int i = 0; i < kPosterCount; ++i)
     {
-        float center_z = -(i + 1) * spacing;
-        float z_near = center_z + poster_width * 0.5f;
-        float z_far = center_z - poster_width * 0.5f;
-        float y0 = poster_center_y - poster_height * 0.5f;
-        float y1 = poster_center_y + poster_height * 0.5f;
+        float y0 = -poster_height * 0.5f;
+        float y1 = +poster_height * 0.5f;
+        float z0 = -poster_width * 0.5f;
+        float z1 = +poster_width * 0.5f;
 
         std::string name = "poster_" + std::to_string(i);
         add_poster_quad(name,
-                        glm::vec3(poster_x, y0, z_near),
-                        glm::vec3(poster_x, y0, z_far),
-                        glm::vec3(poster_x, y1, z_far),
-                        glm::vec3(poster_x, y1, z_near),
+                        glm::vec3(0.0f, y0, z0),
+                        glm::vec3(0.0f, y1, z0),
+                        glm::vec3(0.0f, y1, z1),
+                        glm::vec3(0.0f, y0, z1),
                         glm::vec3(1.0f, 0.0f, 0.0f));
     }
 
@@ -1582,7 +1690,7 @@ glm::vec4 ComputeCameraFrontVector()
 
 void UpdateCameraFromInput(GLFWwindow* window, float delta_time)
 {
-    float movement_speed = 4.0f;
+    float movement_speed = 10.0f;
     float step = movement_speed * delta_time;
 
     glm::vec4 front = ComputeCameraFrontVector();
@@ -1609,20 +1717,49 @@ void UpdateCameraFromInput(GLFWwindow* window, float delta_time)
     const float first_x_limit = kCorridorHalfWidth - player_radius;
     const float first_z_max = 0.8f;
 
-    const float corridor2_offset_x = -(2.0f * kCorridorHalfWidth + kConnectorLength);
-    const float second_corridor_z_offset = kCorridorZ1 - kCornerLength; // -44.0f (deslocamento entre blocos)
+    const float corridor2_offset_x = -(4.0f * kCorridorHalfWidth + kConnectorLength);
+    const float second_corridor_z_offset = kCorridorZ1 - 2.0f * kCornerLength - kConnectorLength;
     const glm::vec2 block_offset(corridor2_offset_x, second_corridor_z_offset);
-    const float connector_center_z = kCorridorZ1 - 0.5f * kCornerLength;
     const float connector_half_width = kCorridorHalfWidth - player_radius;
+    const float joint_overlap = player_radius * 2.0f;
+    const float turn_z0 = kCorridorZ1;
+    const float turn_z1 = turn_z0 - kCornerLength;
+    const float short1_center_z = turn_z0 - 0.5f * kCornerLength;
+    const float short1_start_x = -kCorridorHalfWidth;
+    const float short1_end_x = short1_start_x - kConnectorLength;
+    const float turn1_right_x = short1_end_x - kCorridorHalfWidth;
+    const float short2_start_z = turn_z1;
+    const float short2_end_z = short2_start_z - kConnectorLength;
+    const float turn2_left_x = turn1_right_x;
+    const float turn2_left_z = short2_end_z;
+    const float turn2_right_x = turn2_left_x - 2.0f * kCorridorHalfWidth;
+    const float turn2_right_z = turn2_left_z;
 
     // Todas as caixas abaixo estão no espaço local do "Bloco 0" (tile central).
-    const WalkableBox2D corridor1 = {-first_x_limit, +first_x_limit, kCorridorZ1, first_z_max};
-    const WalkableBox2D corner_left = {-kCorridorHalfWidth, +kCorridorHalfWidth,
-                                       kCorridorZ1 - kCornerLength + player_radius, kCorridorZ1};
-    const WalkableBox2D connector = {-kCorridorHalfWidth - kConnectorLength, -kCorridorHalfWidth,
-                                     connector_center_z - connector_half_width, connector_center_z + connector_half_width};
-    const WalkableBox2D corner_right = {corridor2_offset_x - kCorridorHalfWidth, corridor2_offset_x + kCorridorHalfWidth,
-                                        kCorridorZ1 - kCornerLength + player_radius, kCorridorZ1};
+    const WalkableBox2D corridor1 = {-first_x_limit, +first_x_limit, kCorridorZ1 - joint_overlap, first_z_max};
+    const WalkableBox2D corner_left_1 = {-kCorridorHalfWidth, +kCorridorHalfWidth,
+                                         turn_z1 + player_radius, turn_z0 + joint_overlap};
+    const WalkableBox2D short_corridor_1 = {short1_end_x - joint_overlap, short1_start_x + joint_overlap,
+                                            short1_center_z - connector_half_width,
+                                            short1_center_z + connector_half_width};
+    const WalkableBox2D corner_right_1 = {turn1_right_x - kCorridorHalfWidth, turn1_right_x + kCorridorHalfWidth,
+                                          turn_z1 + player_radius, turn_z0 + joint_overlap};
+    const WalkableBox2D short_corridor_2 = {turn1_right_x - connector_half_width,
+                                            turn1_right_x + connector_half_width,
+                                            short2_end_z - joint_overlap, short2_start_z + joint_overlap};
+    const WalkableBox2D corner_left_2 = {turn2_left_x - kCorridorHalfWidth, turn2_left_x + kCorridorHalfWidth,
+                                         turn2_left_z - kCornerLength + player_radius, turn2_left_z + joint_overlap};
+    const WalkableBox2D corner_right_2 = {turn2_right_x - kCorridorHalfWidth, turn2_right_x + kCorridorHalfWidth,
+                                          turn2_right_z - kCornerLength + player_radius, turn2_right_z + joint_overlap};
+    const WalkableBox2D walkable_boxes[] = {
+        corridor1,
+        corner_left_1,
+        short_corridor_1,
+        corner_right_1,
+        short_corridor_2,
+        corner_left_2,
+        corner_right_2
+    };
 
     auto clampf = [](float value, float min_value, float max_value)
     {
@@ -1643,62 +1780,66 @@ void UpdateCameraFromInput(GLFWwindow* window, float delta_time)
     glm::vec2 p_world(g_CameraPosition.x, g_CameraPosition.z);
     glm::vec2 p = p_world;
 
-    // (7) Collision wrapping: mapeia a posição do mundo para o espaço local do Bloco 0
-    // usando o mesmo deslocamento geométrico entre tiles.
+    // (7) Collision wrapping: maps the world position to local Block 0 space
+    // using progress along the real 2D geometric offset between tiles.
     int block_index = 0;
-    const float wrap_min_z = kCorridorZ1 - kCornerLength + player_radius; // menor z caminhável dentro de um bloco
-    const float wrap_max_z = first_z_max;                                 // maior z caminhável dentro de um bloco
-    while (p.y < wrap_min_z) { p -= block_offset; ++block_index; } // veio do Bloco +1 (à frente)
-    while (p.y > wrap_max_z) { p += block_offset; --block_index; } // veio do Bloco -1 (atrás)
+    const float block_length = glm::length(block_offset);
+    const glm::vec2 block_dir = block_offset / block_length;
+    const float wrap_forward_progress = glm::dot(block_offset + glm::vec2(0.0f, player_radius), block_dir);
+    const float wrap_backward_progress = glm::dot(glm::vec2(0.0f, first_z_max), block_dir);
 
-    if (!inside_box(corridor1, p.x, p.y) &&
-        !inside_box(corner_left, p.x, p.y) &&
-        !inside_box(connector, p.x, p.y) &&
-        !inside_box(corner_right, p.x, p.y))
+    while (glm::dot(p, block_dir) > wrap_forward_progress)
     {
-        glm::vec2 best = closest_point(corridor1, p);
+        p -= block_offset;
+        ++block_index;
+    }
+    while (glm::dot(p, block_dir) < wrap_backward_progress)
+    {
+        p += block_offset;
+        --block_index;
+    }
+
+    bool inside_any_box = false;
+    for (const WalkableBox2D& box : walkable_boxes)
+    {
+        if (inside_box(box, p.x, p.y))
+        {
+            inside_any_box = true;
+            break;
+        }
+    }
+
+    if (!inside_any_box)
+    {
+        glm::vec2 best = closest_point(walkable_boxes[0], p);
         float best_dist2 = (best.x - p.x) * (best.x - p.x) + (best.y - p.y) * (best.y - p.y);
 
-        glm::vec2 candidate = closest_point(corner_left, p);
-        float dist2 = (candidate.x - p.x) * (candidate.x - p.x) + (candidate.y - p.y) * (candidate.y - p.y);
-        if (dist2 < best_dist2)
+        for (const WalkableBox2D& box : walkable_boxes)
         {
-            best = candidate;
-            best_dist2 = dist2;
-        }
-
-        candidate = closest_point(connector, p);
-        dist2 = (candidate.x - p.x) * (candidate.x - p.x) + (candidate.y - p.y) * (candidate.y - p.y);
-        if (dist2 < best_dist2)
-        {
-            best = candidate;
-            best_dist2 = dist2;
-        }
-
-        candidate = closest_point(corner_right, p);
-        dist2 = (candidate.x - p.x) * (candidate.x - p.x) + (candidate.y - p.y) * (candidate.y - p.y);
-        if (dist2 < best_dist2)
-        {
-            best = candidate;
-            best_dist2 = dist2;
+            glm::vec2 candidate = closest_point(box, p);
+            float dist2 = (candidate.x - p.x) * (candidate.x - p.x) + (candidate.y - p.y) * (candidate.y - p.y);
+            if (dist2 < best_dist2)
+            {
+                best = candidate;
+                best_dist2 = dist2;
+            }
         }
 
         p = best;
     }
 
-    // (5-6) Bi-directional treadmill recentering: mantém o jogador perto do Bloco 0.
-    // Quando ele avança "demais" no Bloco +1, subtrai o offset do bloco;
-    // quando ele recua "demais" no Bloco -1, soma o offset.
-    const float recenter_plane_z = 0.5f * kCorridorZ1; // -20.0f (meio do corredor reto)
+    // (5-6) Bi-directional treadmill recentering: both physical sides enter a new logical corridor.
     p_world = p + (float)block_index * block_offset;
-    while (block_index > 0 && p.y < recenter_plane_z)
+    while (block_index > 0)
     {
-        p_world -= block_offset; // traz do Bloco +1 para o Bloco 0 (subtrai (corridor2_offset_x, second_corridor_z_offset))
+        ActivateNewLogicalCorridor(+1);
+        p_world -= block_offset;
         --block_index;
     }
-    while (block_index < 0 && p.y > recenter_plane_z)
+    while (block_index < 0)
     {
-        p_world += block_offset; // traz do Bloco -1 para o Bloco 0 (soma (corridor2_offset_x, second_corridor_z_offset))
+        ActivateNewLogicalCorridor(-1);
+        p_world += block_offset;
         ++block_index;
     }
 
