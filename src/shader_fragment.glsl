@@ -14,6 +14,7 @@ struct Material
     float shininess;
     float ambient_strength;
     vec2 uv_scale;
+    vec2 uv_offset;
 };
 
 struct PointLight
@@ -38,7 +39,7 @@ out vec4 color;
 
 void main()
 {
-    vec2 uv = texcoords * material.uv_scale;
+    vec2 uv = texcoords * material.uv_scale + material.uv_offset;
     vec3 albedo = texture(material.diffuse_texture, uv).rgb;
 
     vec3 P = position_world.xyz;

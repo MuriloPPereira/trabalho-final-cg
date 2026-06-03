@@ -18,6 +18,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstdint>
+#include <cstring>
 
 // Headers abaixo são específicos de C++
 #include <set>
@@ -38,8 +40,10 @@
 
 // Headers da biblioteca GLM: criação de matrizes e vetores.
 #include <glm/mat4x4.hpp>
+#include <glm/vec3.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
+#include <glm/geometric.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
 // Headers da biblioteca para carregar modelos obj
@@ -116,6 +120,9 @@ void PopMatrix(glm::mat4& M);
 
 struct Material;
 struct PointLight;
+struct StaticModel;
+struct SalarymanNPC;
+struct CanonicalCorridorDefinition;
 
 // Declaração de várias funções utilizadas em main().  Essas estão definidas
 // logo após a definição de main() neste arquivo.
@@ -129,6 +136,12 @@ void LoadTextureImage(const char* filename, GLint wrap_s, GLint wrap_t); // Fun�
 void DrawVirtualObject(const char* object_name); // Desenha um objeto armazenado em g_VirtualScene
 void ApplyMaterial(const struct Material& material);
 void SetPointLights(const std::vector<struct PointLight>& lights);
+void CreateSolidColorTexture(unsigned char r, unsigned char g, unsigned char b);
+bool LoadSalarymanStaticModel(StaticModel& model, const char* filename);
+void SpawnSalarymanForCorridor(SalarymanNPC& salaryman, const CanonicalCorridorDefinition& corridor, const glm::vec3& player_position);
+void UpdateSalarymanNPC(SalarymanNPC& salaryman, float delta_time, const glm::vec4& camera_position_c);
+void DrawStaticModel(const StaticModel& model);
+void DrawSalarymanNPC(const SalarymanNPC& salaryman, const Material& material);
 GLuint LoadShader_Vertex(const char* filename);   // Carrega um vertex shader
 GLuint LoadShader_Fragment(const char* filename); // Carrega um fragment shader
 void LoadShader(const char* filename, GLuint shader_id); // Função utilizada pelas duas acima
@@ -185,6 +198,7 @@ struct Material
     float shininess;
     float ambient_strength;
     glm::vec2 uv_scale;
+    glm::vec2 uv_offset;
 };
 
 struct PointLight
@@ -199,6 +213,39 @@ struct PointLight
     float quadratic;
 };
 
+struct StaticModel
+{
+    std::vector<std::string> object_names;
+    glm::vec3 bbox_min;
+    glm::vec3 bbox_max;
+};
+
+struct SalarymanNPC
+{
+    bool active;
+    int corridorId;
+    glm::vec3 position;
+    glm::vec3 forward;
+    float speed;
+    float corridorLength;
+    glm::vec3 corridorOrigin;
+    bool useAnimation;
+    StaticModel* model;
+
+    SalarymanNPC()
+        : active(false)
+        , corridorId(-1)
+        , position(0.0f, 0.0f, 0.0f)
+        , forward(0.0f, 0.0f, -1.0f)
+        , speed(1.35f)
+        , corridorLength(0.0f)
+        , corridorOrigin(0.0f, 0.0f, 0.0f)
+        , useAnimation(false)
+        , model(NULL)
+    {
+    }
+};
+
 // Abaixo definimos variáveis globais utilizadas em várias funções do código.
 
 // A cena virtual é uma lista de objetos nomeados, guardados em um dicionário
@@ -206,6 +253,8 @@ struct PointLight
 // objetos dentro da variável g_VirtualScene, e veja na função main() como
 // estes são acessados.
 std::map<std::string, SceneObject> g_VirtualScene;
+StaticModel g_SalarymanStaticModel;
+SalarymanNPC g_SalarymanNPC;
 
 // Pilha que guardará as matrizes de modelagem.
 std::stack<glm::mat4>  g_MatrixStack;
@@ -239,24 +288,57 @@ struct CorridorState
     bool has_anomaly;
 };
 
+struct CanonicalCorridorLayout
+{
+    float connector_length;
+    float corridor2_offset_x;
+    float second_corridor_z_offset;
+    glm::vec2 block_offset;
+    float turn_z0;
+    float turn_z1;
+    float short1_center_z;
+    float short1_start_x;
+    float short1_end_x;
+    float turn1_right_x;
+    float short2_start_z;
+    float short2_end_z;
+    float turn2_left_x;
+    float turn2_left_z;
+    float turn2_right_x;
+    float turn2_right_z;
+};
+
+struct CanonicalCorridorDefinition
+{
+    int corridorId;
+    glm::vec3 origin;
+    glm::vec3 forward;
+    float length;
+    float connectorLength;
+    glm::mat4 entryTransform;
+    glm::mat4 exitTransform;
+};
+
 int g_LogicalCorridorStep = 0;
 int g_LastEnteredPhysicalSide = 0;
+int g_LastSalarymanSpawnCorridorId = -1;
+int g_PreparedNextCorridorId = -1;
+int g_PreparedTransitionDirection = 0;
+bool g_InConnectorTransition = false;
+int g_LastPlayerSection = -1;
 CorridorState g_CurrentCorridorState = {0, +1, +1, 0, false};
 CorridorState g_NegativeCandidateCorridorState = {1, -1, -1, 1, false};
 CorridorState g_PositiveCandidateCorridorState = {1, +1, +1, 2, false};
 
 CorridorState MakeCorridorState(int id, int entry_side, int salt)
 {
-    unsigned int h = (unsigned int)(id * 747796405u) ^ (unsigned int)(salt * 2891336453u);
-    h = (h ^ (h >> 16)) * 2246822519u;
-    h = (h ^ (h >> 13)) * 3266489917u;
-    h = h ^ (h >> 16);
+    (void)salt;
 
     CorridorState state;
     state.id = id;
     state.entry_side = entry_side;
     state.logical_forward_sign = (entry_side < 0) ? -1 : +1;
-    state.poster_shift = (int)(h % 4u);
+    state.poster_shift = 0;
     state.has_anomaly = false; // Hook for later anomaly selection.
     return state;
 }
@@ -307,6 +389,7 @@ GLint g_material_specular_strength_uniform;
 GLint g_material_shininess_uniform;
 GLint g_material_ambient_strength_uniform;
 GLint g_material_uv_scale_uniform;
+GLint g_material_uv_offset_uniform;
 GLint g_num_lights_uniform;
 
 const int kMaxLights = 30;
@@ -325,10 +408,126 @@ const float kCorridorLength = 40.0f;
 const float kCorridorZ0 = 0.0f;
 const float kCorridorZ1 = -kCorridorLength;
 const float kCornerLength = 4.0f;
-const float kConnectorLength = kCorridorLength / 4.0f;
+const float kConnectorLength = kCorridorLength * 0.5f;
+const float kFloorTileSize = 0.5f;
+const float kCeilingTileSize = 2.5f;
+const float kWallTextureTileSize = 2.0f;
 const int kPosterCount = 4;
 const int kLampCount = 12;
 const char* kPosterNames[kPosterCount] = {"poster_0", "poster_1", "poster_2", "poster_3"};
+
+CanonicalCorridorLayout GetCanonicalCorridorLayout()
+{
+    CanonicalCorridorLayout layout;
+    layout.connector_length = kConnectorLength;
+    layout.corridor2_offset_x = -(4.0f * kCorridorHalfWidth + layout.connector_length);
+    layout.second_corridor_z_offset = kCorridorZ1 - 2.0f * kCornerLength - layout.connector_length;
+    layout.block_offset = glm::vec2(layout.corridor2_offset_x, layout.second_corridor_z_offset);
+    layout.turn_z0 = kCorridorZ1;
+    layout.turn_z1 = layout.turn_z0 - kCornerLength;
+    layout.short1_center_z = layout.turn_z0 - 0.5f * kCornerLength;
+    layout.short1_start_x = -kCorridorHalfWidth;
+    layout.short1_end_x = layout.short1_start_x - layout.connector_length;
+    layout.turn1_right_x = layout.short1_end_x - kCorridorHalfWidth;
+    layout.short2_start_z = layout.turn_z1;
+    layout.short2_end_z = layout.short2_start_z - layout.connector_length;
+    layout.turn2_left_x = layout.turn1_right_x;
+    layout.turn2_left_z = layout.short2_end_z;
+    layout.turn2_right_x = layout.turn2_left_x - 2.0f * kCorridorHalfWidth;
+    layout.turn2_right_z = layout.turn2_left_z;
+    return layout;
+}
+
+glm::vec3 TransformPoint(const glm::mat4& transform, const glm::vec3& point)
+{
+    glm::vec4 p = transform * glm::vec4(point.x, point.y, point.z, 1.0f);
+    return glm::vec3(p.x, p.y, p.z);
+}
+
+glm::vec3 TransformVector(const glm::mat4& transform, const glm::vec3& vector)
+{
+    glm::vec4 v = transform * glm::vec4(vector.x, vector.y, vector.z, 0.0f);
+    return glm::vec3(v.x, v.y, v.z);
+}
+
+CanonicalCorridorDefinition MakeCanonicalCorridorDefinition(int corridor_id, const glm::mat4& corridor_transform)
+{
+    const CanonicalCorridorLayout layout = GetCanonicalCorridorLayout();
+
+    CanonicalCorridorDefinition corridor;
+    corridor.corridorId = corridor_id;
+    corridor.origin = TransformPoint(corridor_transform, glm::vec3(0.0f, 0.0f, kCorridorZ0));
+    corridor.forward = TransformVector(corridor_transform, glm::vec3(0.0f, 0.0f, -1.0f));
+    if (glm::length(corridor.forward) < 0.0001f)
+        corridor.forward = glm::vec3(0.0f, 0.0f, -1.0f);
+    else
+        corridor.forward = glm::normalize(corridor.forward);
+    corridor.length = kCorridorLength;
+    corridor.connectorLength = layout.connector_length;
+    corridor.entryTransform = corridor_transform;
+    corridor.exitTransform = corridor_transform * Matrix_Translate(layout.block_offset.x, 0.0f, layout.block_offset.y);
+    return corridor;
+}
+
+CanonicalCorridorDefinition MakeCurrentCanonicalCorridorDefinition(int corridor_id)
+{
+    return MakeCanonicalCorridorDefinition(corridor_id, Matrix_Identity());
+}
+
+glm::vec3 ComputeSalarymanSpawnPosition(const CanonicalCorridorDefinition& corridor)
+{
+    const float preferred_spawn_distance = 8.0f;
+    const float end_margin = 4.0f;
+    const float spawn_distance = std::max(0.0f, std::min(preferred_spawn_distance, corridor.length - end_margin));
+    glm::vec3 spawn_position = corridor.origin + corridor.forward * spawn_distance;
+    spawn_position.y = 0.0f;
+    return spawn_position;
+}
+
+const char* PlayerSectionName(int player_section)
+{
+    return (player_section == 1) ? "connector/turn" : "straight";
+}
+
+void TrySpawnSalarymanForCanonicalCorridor(const CanonicalCorridorDefinition& corridor,
+                                           const glm::vec3& player_position,
+                                           int player_section,
+                                           int traversal_direction,
+                                           const char* reason)
+{
+    const glm::vec3 spawn_position = ComputeSalarymanSpawnPosition(corridor);
+    const bool already_spawned = (g_LastSalarymanSpawnCorridorId == corridor.corridorId);
+
+    printf("Salaryman trigger: reason=%s, spawnCalled=%s, skipped=%s, currentCorridorId=%d, preparedCorridorId=%d, playerSection=%s, traversalDirection=%d, canonicalOrigin=(%.2f, %.2f, %.2f), canonicalForward=(%.2f, %.2f, %.2f), connectorLength=%.2f, playerPosition=(%.2f, %.2f, %.2f), spawnPosition=(%.2f, %.2f, %.2f), lastSpawnedCorridorId=%d, active=%s\n",
+           reason,
+           already_spawned ? "false" : "true",
+           already_spawned ? "already_spawned_for_corridor" : "none",
+           g_CurrentCorridorState.id,
+           g_PreparedNextCorridorId,
+           PlayerSectionName(player_section),
+           traversal_direction,
+           corridor.origin.x, corridor.origin.y, corridor.origin.z,
+           corridor.forward.x, corridor.forward.y, corridor.forward.z,
+           corridor.connectorLength,
+           player_position.x, player_position.y, player_position.z,
+           spawn_position.x, spawn_position.y, spawn_position.z,
+           g_LastSalarymanSpawnCorridorId,
+           g_SalarymanNPC.active ? "true" : "false");
+
+    if (already_spawned)
+        return;
+
+    SpawnSalarymanForCorridor(g_SalarymanNPC, corridor, player_position);
+    g_LastSalarymanSpawnCorridorId = corridor.corridorId;
+
+    printf("Salaryman trigger result: reason=%s, currentCorridorId=%d, lastSpawnedCorridorId=%d, active=%s, spawnPosition=(%.2f, %.2f, %.2f), npcForward=(%.2f, %.2f, %.2f)\n",
+           reason,
+           g_CurrentCorridorState.id,
+           g_LastSalarymanSpawnCorridorId,
+           g_SalarymanNPC.active ? "true" : "false",
+           g_SalarymanNPC.position.x, g_SalarymanNPC.position.y, g_SalarymanNPC.position.z,
+           g_SalarymanNPC.forward.x, g_SalarymanNPC.forward.y, g_SalarymanNPC.forward.z);
+}
 
 // Número de texturas carregadas pela função LoadTextureImage()
 GLuint g_NumLoadedTextures = 0;
@@ -408,55 +607,58 @@ int main(int argc, char* argv[])
     LoadShadersFromFiles();
 
     // Carregamos imagens para serem utilizadas como textura (caminhos relativos a data/)
-    LoadTextureImage("wall.jpg", GL_REPEAT, GL_REPEAT); // 0
-    LoadTextureImage("floor.jpg", GL_REPEAT, GL_REPEAT); // 1
-    LoadTextureImage("ceiling.jpg", GL_REPEAT, GL_REPEAT); // 2
+    LoadTextureImage("wall.png", GL_MIRRORED_REPEAT, GL_MIRRORED_REPEAT); // 0
+    LoadTextureImage("floor.jpg", GL_MIRRORED_REPEAT, GL_MIRRORED_REPEAT); // 1
+    LoadTextureImage("ceiling.jpg", GL_MIRRORED_REPEAT, GL_MIRRORED_REPEAT); // 2
     LoadTextureImage("poster1.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // 3
     LoadTextureImage("poster2.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // 4
     LoadTextureImage("poster3.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // 5
     LoadTextureImage("poster4.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // 6
+    const GLuint kSalarymanTextureUnit = g_NumLoadedTextures;
+    CreateSolidColorTexture(178, 168, 150); // 7
 
     BuildCorridorAndAddToVirtualScene();
     BuildCornerAndAddToVirtualScene();
     BuildPostersAndAddToVirtualScene();
+    if (!LoadSalarymanStaticModel(g_SalarymanStaticModel, "assets/salarymanwalking.fbx"))
+        std::exit(EXIT_FAILURE);
+    g_SalarymanNPC.model = &g_SalarymanStaticModel;
+
+    const glm::vec3 initial_player_position(g_CameraPosition.x, g_CameraPosition.y, g_CameraPosition.z);
+    TrySpawnSalarymanForCanonicalCorridor(MakeCurrentCanonicalCorridorDefinition(g_CurrentCorridorState.id),
+                                          initial_player_position,
+                                          0,
+                                          0,
+                                          "initial");
 
     const GLuint kWallTextureUnit = 0;
     const GLuint kFloorTextureUnit = 1;
     const GLuint kCeilingTextureUnit = 2;
     const GLuint kPosterTextureUnits[kPosterCount] = {3, 4, 5, 6};
 
-    const float floor_tile_size = 0.5f;
-    const float ceiling_tile_size = 2.5f;
-    const float wall_tile_size_z = 2.0f;
-    const float wall_tile_size_y = 1.5f;
-
-    const glm::vec2 floor_uv_scale((2.0f * kCorridorHalfWidth) / floor_tile_size,
-                                   kCorridorLength / floor_tile_size);
-    const glm::vec2 ceiling_uv_scale((2.0f * kCorridorHalfWidth) / ceiling_tile_size,
-                                     kCorridorLength / ceiling_tile_size);
-    const glm::vec2 wall_uv_scale(kCorridorLength / wall_tile_size_z,
-                                  kCorridorHeight / wall_tile_size_y);
-
     Material wall_material;
     wall_material.diffuse_texture_unit = kWallTextureUnit;
     wall_material.specular_strength = 0.9f;
     wall_material.shininess = 96.0f;
     wall_material.ambient_strength = 0.05f;
-    wall_material.uv_scale = wall_uv_scale;
+    wall_material.uv_scale = glm::vec2(1.0f, 1.0f);
+    wall_material.uv_offset = glm::vec2(0.0f, 0.0f);
 
     Material floor_material;
     floor_material.diffuse_texture_unit = kFloorTextureUnit;
     floor_material.specular_strength = 0.35f;
     floor_material.shininess = 48.0f;
     floor_material.ambient_strength = 0.04f;
-    floor_material.uv_scale = floor_uv_scale;
+    floor_material.uv_scale = glm::vec2(1.0f, 1.0f);
+    floor_material.uv_offset = glm::vec2(0.0f, 0.0f);
 
     Material ceiling_material;
     ceiling_material.diffuse_texture_unit = kCeilingTextureUnit;
     ceiling_material.specular_strength = 0.15f;
     ceiling_material.shininess = 20.0f;
     ceiling_material.ambient_strength = 0.03f;
-    ceiling_material.uv_scale = ceiling_uv_scale;
+    ceiling_material.uv_scale = glm::vec2(1.0f, 1.0f);
+    ceiling_material.uv_offset = glm::vec2(0.0f, 0.0f);
 
     std::vector<Material> poster_materials;
     poster_materials.reserve(kPosterCount);
@@ -468,23 +670,29 @@ int main(int argc, char* argv[])
         poster_material.shininess = 24.0f;
         poster_material.ambient_strength = 0.05f;
         poster_material.uv_scale = glm::vec2(1.0f, 1.0f);
+        poster_material.uv_offset = glm::vec2(0.0f, 0.0f);
         poster_materials.push_back(poster_material);
     }
-    const float corridor2_offset_x = -(4.0f * kCorridorHalfWidth + kConnectorLength);
-    const float second_corridor_z_offset = kCorridorZ1 - 2.0f * kCornerLength - kConnectorLength;
-    const glm::vec2 block_offset(corridor2_offset_x, second_corridor_z_offset);
-    const float turn_z0 = kCorridorZ1;
-    const float turn_z1 = turn_z0 - kCornerLength;
-    const float short1_center_z = turn_z0 - 0.5f * kCornerLength;
-    const float short1_start_x = -kCorridorHalfWidth;
-    const float short1_end_x = short1_start_x - kConnectorLength;
-    const float turn1_right_x = short1_end_x - kCorridorHalfWidth;
-    const float short2_start_z = turn_z1;
-    const float short2_end_z = short2_start_z - kConnectorLength;
-    const float turn2_left_x = turn1_right_x;
-    const float turn2_left_z = short2_end_z;
-    const float turn2_right_x = turn2_left_x - 2.0f * kCorridorHalfWidth;
-    const float turn2_right_z = turn2_left_z;
+
+    Material salaryman_material;
+    salaryman_material.diffuse_texture_unit = kSalarymanTextureUnit;
+    salaryman_material.specular_strength = 0.18f;
+    salaryman_material.shininess = 32.0f;
+    salaryman_material.ambient_strength = 0.08f;
+    salaryman_material.uv_scale = glm::vec2(1.0f, 1.0f);
+    salaryman_material.uv_offset = glm::vec2(0.0f, 0.0f);
+    const CanonicalCorridorLayout corridor_layout = GetCanonicalCorridorLayout();
+    const float connector_length = corridor_layout.connector_length;
+    const glm::vec2 block_offset = corridor_layout.block_offset;
+    const float turn_z0 = corridor_layout.turn_z0;
+    const float short1_center_z = corridor_layout.short1_center_z;
+    const float short1_start_x = corridor_layout.short1_start_x;
+    const float short2_start_z = corridor_layout.short2_start_z;
+    const float turn1_right_x = corridor_layout.turn1_right_x;
+    const float turn2_left_x = corridor_layout.turn2_left_x;
+    const float turn2_left_z = corridor_layout.turn2_left_z;
+    const float turn2_right_x = corridor_layout.turn2_right_x;
+    const float turn2_right_z = corridor_layout.turn2_right_z;
 
     std::vector<PointLight> corridor_lights;
     corridor_lights.reserve(kMaxLights);
@@ -519,9 +727,9 @@ int main(int argc, char* argv[])
         }
 
         corridor_lights.push_back(make_block_light(block_transform, glm::vec3(0.0f, kCorridorHeight - 0.15f, turn_z0 - 0.5f * kCornerLength)));
-        corridor_lights.push_back(make_block_light(block_transform, glm::vec3(short1_start_x - 0.5f * kConnectorLength, kCorridorHeight - 0.15f, short1_center_z)));
+        corridor_lights.push_back(make_block_light(block_transform, glm::vec3(short1_start_x - 0.5f * connector_length, kCorridorHeight - 0.15f, short1_center_z)));
         corridor_lights.push_back(make_block_light(block_transform, glm::vec3(turn1_right_x, kCorridorHeight - 0.15f, turn_z0 - 0.5f * kCornerLength)));
-        corridor_lights.push_back(make_block_light(block_transform, glm::vec3(turn1_right_x, kCorridorHeight - 0.15f, short2_start_z - 0.5f * kConnectorLength)));
+        corridor_lights.push_back(make_block_light(block_transform, glm::vec3(turn1_right_x, kCorridorHeight - 0.15f, short2_start_z - 0.5f * connector_length)));
         corridor_lights.push_back(make_block_light(block_transform, glm::vec3(turn2_left_x, kCorridorHeight - 0.15f, turn2_left_z - 0.5f * kCornerLength)));
         corridor_lights.push_back(make_block_light(block_transform, glm::vec3(turn2_right_x, kCorridorHeight - 0.15f, turn2_right_z - 0.5f * kCornerLength)));
     };
@@ -573,6 +781,7 @@ int main(int argc, char* argv[])
         glm::vec4 camera_lookat_l    = camera_position_c + camera_front_vector;
         glm::vec4 camera_view_vector = camera_lookat_l - camera_position_c;
         glm::vec4 camera_up_vector   = glm::vec4(0.0f,1.0f,0.0f,0.0f);
+        UpdateSalarymanNPC(g_SalarymanNPC, delta_time, camera_position_c);
 
         // Computamos a matriz "View" utilizando os parâmetros da câmera para
         // definir o sistema de coordenadas da câmera.  Veja slides 2-14, 184-190 e 236-242 do documento Aula_08_Sistemas_de_Coordenadas.pdf.
@@ -620,17 +829,28 @@ int main(int argc, char* argv[])
                                           const CorridorState& corridor_state,
                                           const Material& floor_mat,
                                           const Material& ceiling_mat,
-                                          const Material& wall_mat)
+                                          const Material& wall_mat,
+                                          float segment_start_distance,
+                                          float segment_length_scale)
         {
             glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(corridor_model));
 
-            ApplyMaterial(floor_mat);
+            Material floor_instance = floor_mat;
+            floor_instance.uv_scale.y *= segment_length_scale;
+            floor_instance.uv_offset = glm::vec2(0.0f, segment_start_distance / kFloorTileSize);
+            ApplyMaterial(floor_instance);
             DrawVirtualObject("corridor_floor");
 
-            ApplyMaterial(ceiling_mat);
+            Material ceiling_instance = ceiling_mat;
+            ceiling_instance.uv_scale.y *= segment_length_scale;
+            ceiling_instance.uv_offset = glm::vec2(0.0f, segment_start_distance / kCeilingTileSize);
+            ApplyMaterial(ceiling_instance);
             DrawVirtualObject("corridor_ceiling");
 
-            ApplyMaterial(wall_mat);
+            Material wall_instance = wall_mat;
+            wall_instance.uv_scale.x *= segment_length_scale;
+            wall_instance.uv_offset = glm::vec2(segment_start_distance / kWallTextureTileSize, 0.0f);
+            ApplyMaterial(wall_instance);
             DrawVirtualObject("corridor_wall_left");
             DrawVirtualObject("corridor_wall_right");
 
@@ -663,80 +883,106 @@ int main(int argc, char* argv[])
         };
 
 
-        // Materiais para o conector curto.
-        Material connector_floor_material = floor_material;
-        Material connector_ceiling_material = ceiling_material;
-        Material connector_wall_material = wall_material;
-        const float connector_uv_factor = kConnectorLength / kCorridorLength;
-        connector_floor_material.uv_scale.y *= connector_uv_factor;
-        connector_ceiling_material.uv_scale.y *= connector_uv_factor;
-        connector_wall_material.uv_scale.x *= connector_uv_factor;
-
-        // [NOVO] Materiais específicos para as Quinas (tamanho de 4x4)
         Material corner_floor_material = floor_material;
         Material corner_ceiling_material = ceiling_material;
         Material corner_wall_material = wall_material;
-        
-        const float corner_uv_factor = kCornerLength / kCorridorLength; // 4.0 / 40.0 = 0.1
-        corner_floor_material.uv_scale.y *= corner_uv_factor;
-        corner_ceiling_material.uv_scale.y *= corner_uv_factor;
-        corner_wall_material.uv_scale.x *= corner_uv_factor;
+
+        auto make_length_offset_material = [&](const Material& base_material,
+                                               float length_offset,
+                                               bool offset_u,
+                                               float tile_size)
+        {
+            Material instance = base_material;
+            if (offset_u)
+                instance.uv_offset.x = length_offset / tile_size;
+            else
+                instance.uv_offset.y = length_offset / tile_size;
+            return instance;
+        };
+
+        auto draw_corner = [&](const glm::mat4& corner_model,
+                               const char* floor_name,
+                               const char* ceiling_name,
+                               const char* wall_a_name,
+                               const char* wall_b_name,
+                               float length_offset,
+                               bool wall_a_uses_length_axis,
+                               bool wall_b_uses_length_axis)
+        {
+            glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(corner_model));
+
+            ApplyMaterial(make_length_offset_material(corner_floor_material, length_offset, false, kFloorTileSize));
+            DrawVirtualObject(floor_name);
+
+            ApplyMaterial(make_length_offset_material(corner_ceiling_material, length_offset, false, kCeilingTileSize));
+            DrawVirtualObject(ceiling_name);
+
+            ApplyMaterial(make_length_offset_material(corner_wall_material, wall_a_uses_length_axis ? length_offset : 0.0f, true, kWallTextureTileSize));
+            DrawVirtualObject(wall_a_name);
+
+            ApplyMaterial(make_length_offset_material(corner_wall_material, wall_b_uses_length_axis ? length_offset : 0.0f, true, kWallTextureTileSize));
+            DrawVirtualObject(wall_b_name);
+        };
 
         // (1) Modular block (tile): corredor reto + quina esquerda + conector + quina direita.
         // O próximo tile começa em (corridor2_offset_x, second_corridor_z_offset) relativo ao tile atual.
         auto draw_modular_block = [&](const glm::mat4& base_transform,
                                       const CorridorState& corridor_state)
         {
+            const float straight_start = 0.0f;
+            const float corner1_start = kCorridorLength;
+            const float connector1_start = corner1_start + kCornerLength;
+            const float corner2_start = connector1_start + connector_length;
+            const float connector2_start = corner2_start + kCornerLength;
+            const float corner3_start = connector2_start + connector_length;
+            const float corner4_start = corner3_start + kCornerLength;
+            const float full_segment_scale = 1.0f;
+            const float connector_segment_scale = connector_length / kCorridorLength;
+
             // Corredor reto principal (eixo -Z) deste tile.
-            draw_straight_corridor(base_transform, true, corridor_state, floor_material, ceiling_material, wall_material);
+            draw_straight_corridor(base_transform, true, corridor_state, floor_material, ceiling_material, wall_material, straight_start, full_segment_scale);
 
             // Quina esquerda no final do corredor: base_transform * T(0,0,kCorridorZ1).
             glm::mat4 m = base_transform * Matrix_Translate(0.0f, 0.0f, turn_z0);
-            glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(m));
-
-            ApplyMaterial(corner_floor_material);   DrawVirtualObject("corner_left_floor");
-            ApplyMaterial(corner_ceiling_material); DrawVirtualObject("corner_left_ceiling");
-            ApplyMaterial(corner_wall_material);
-            DrawVirtualObject("corner_left_wall_back");
-            DrawVirtualObject("corner_left_wall_right");
+            draw_corner(m,
+                        "corner_left_floor", "corner_left_ceiling",
+                        "corner_left_wall_back", "corner_left_wall_right",
+                        corner1_start,
+                        false, true);
 
             // Conector curto (eixo -X): base_transform * T(...) * R_y(+90°) * S(...).
             m = base_transform
               * Matrix_Translate(short1_start_x, 0.0f, short1_center_z)
               * Matrix_Rotate_Y(3.141592f / 2.0f)
-              * Matrix_Scale(1.0f, 1.0f, kConnectorLength / kCorridorLength);
-            draw_straight_corridor(m, false, corridor_state, connector_floor_material, connector_ceiling_material, connector_wall_material);
+              * Matrix_Scale(1.0f, 1.0f, connector_length / kCorridorLength);
+            draw_straight_corridor(m, false, corridor_state, floor_material, ceiling_material, wall_material, connector1_start, connector_segment_scale);
 
             // Quina direita no fim do conector: base_transform * T(corridor2_offset_x,0,kCorridorZ1).
             m = base_transform * Matrix_Translate(turn1_right_x, 0.0f, turn_z0);
-            glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(m));
-
-            ApplyMaterial(corner_floor_material);   DrawVirtualObject("corner_right_floor");
-            ApplyMaterial(corner_ceiling_material); DrawVirtualObject("corner_right_ceiling");
-            ApplyMaterial(corner_wall_material);
-            DrawVirtualObject("corner_right_wall_front");
-            DrawVirtualObject("corner_right_wall_left");
+            draw_corner(m,
+                        "corner_right_floor", "corner_right_ceiling",
+                        "corner_right_wall_front", "corner_right_wall_left",
+                        corner2_start,
+                        false, true);
 
             m = base_transform
               * Matrix_Translate(turn1_right_x, 0.0f, short2_start_z)
-              * Matrix_Scale(1.0f, 1.0f, kConnectorLength / kCorridorLength);
-            draw_straight_corridor(m, false, corridor_state, connector_floor_material, connector_ceiling_material, connector_wall_material);
+              * Matrix_Scale(1.0f, 1.0f, connector_length / kCorridorLength);
+            draw_straight_corridor(m, false, corridor_state, floor_material, ceiling_material, wall_material, connector2_start, connector_segment_scale);
 
             m = base_transform * Matrix_Translate(turn2_left_x, 0.0f, turn2_left_z);
-            glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(m));
-            ApplyMaterial(corner_floor_material);   DrawVirtualObject("corner_left_floor");
-            ApplyMaterial(corner_ceiling_material); DrawVirtualObject("corner_left_ceiling");
-            ApplyMaterial(corner_wall_material);
-            DrawVirtualObject("corner_left_wall_back");
-            DrawVirtualObject("corner_left_wall_right");
+            draw_corner(m,
+                        "corner_left_floor", "corner_left_ceiling",
+                        "corner_left_wall_back", "corner_left_wall_right",
+                        corner3_start,
+                        false, true);
 
             m = base_transform * Matrix_Translate(turn2_right_x, 0.0f, turn2_right_z);
-            glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(m));
-            ApplyMaterial(corner_floor_material);   DrawVirtualObject("corner_right_floor");
-            ApplyMaterial(corner_ceiling_material); DrawVirtualObject("corner_right_ceiling");
-            ApplyMaterial(corner_wall_material);
-            DrawVirtualObject("corner_right_wall_front");
-            DrawVirtualObject("corner_right_wall_left");
+            draw_corner(m,
+                        "corner_right_floor", "corner_right_ceiling",
+                        "corner_right_wall_front", "corner_right_wall_left",
+                        corner4_start,
+                        false, true);
         };
 
         // (2) 3-Tile Treadmill: side blocks are fresh candidates, not history.
@@ -746,6 +992,7 @@ int main(int argc, char* argv[])
                            g_CurrentCorridorState);
         draw_modular_block(Matrix_Translate(block_offset.x, 0.0f, block_offset.y),
                            g_PositiveCandidateCorridorState);
+        DrawSalarymanNPC(g_SalarymanNPC, salaryman_material);
 
         // Imprimimos na tela os ângulos de Euler que controlam a rotação do
         // terceiro cubo.
@@ -824,6 +1071,8 @@ void LoadTextureImage(const char* filename, GLint wrap_s, GLint wrap_t)
     GLuint textureunit = g_NumLoadedTextures;
     glActiveTexture(GL_TEXTURE0 + textureunit);
     glBindTexture(GL_TEXTURE_2D, texture_id);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap_s);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrap_t);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
     glGenerateMipmap(GL_TEXTURE_2D);
     glBindSampler(textureunit, sampler_id);
@@ -840,6 +1089,7 @@ void ApplyMaterial(const Material& material)
     glUniform1f(g_material_shininess_uniform, material.shininess);
     glUniform1f(g_material_ambient_strength_uniform, material.ambient_strength);
     glUniform2f(g_material_uv_scale_uniform, material.uv_scale.x, material.uv_scale.y);
+    glUniform2f(g_material_uv_offset_uniform, material.uv_offset.x, material.uv_offset.y);
 }
 
 void SetPointLights(const std::vector<PointLight>& lights)
@@ -892,6 +1142,692 @@ void DrawVirtualObject(const char* object_name)
     // "Desligamos" o VAO, evitando assim que operações posteriores venham a
     // alterar o mesmo. Isso evita bugs.
     glBindVertexArray(0);
+}
+
+void CreateSolidColorTexture(unsigned char r, unsigned char g, unsigned char b)
+{
+    GLuint texture_id;
+    GLuint sampler_id;
+    glGenTextures(1, &texture_id);
+    glGenSamplers(1, &sampler_id);
+
+    glSamplerParameteri(sampler_id, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glSamplerParameteri(sampler_id, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glSamplerParameteri(sampler_id, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glSamplerParameteri(sampler_id, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    const unsigned char pixel[3] = {r, g, b};
+    const GLuint textureunit = g_NumLoadedTextures;
+    glActiveTexture(GL_TEXTURE0 + textureunit);
+    glBindTexture(GL_TEXTURE_2D, texture_id);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8, 1, 1, 0, GL_RGB, GL_UNSIGNED_BYTE, pixel);
+    glBindSampler(textureunit, sampler_id);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    g_NumLoadedTextures += 1;
+}
+
+namespace
+{
+struct FbxNodeHeader
+{
+    uint64_t end_offset;
+    uint64_t num_properties;
+    uint64_t property_list_length;
+    std::string name;
+};
+
+struct SalarymanStaticVertex
+{
+    float px, py, pz, pw;
+    float nx, ny, nz, nw;
+    float u, v;
+};
+
+struct FbxMeshData
+{
+    std::vector<double> vertices;
+    std::vector<int32_t> polygon_indices;
+    std::vector<double> normals;
+    std::vector<double> uvs;
+    std::vector<int32_t> uv_indices;
+    std::string normal_mapping;
+    std::string normal_reference;
+    std::string uv_mapping;
+    std::string uv_reference;
+};
+
+uint32_t ReadU32(const std::vector<unsigned char>& bytes, size_t offset)
+{
+    uint32_t value;
+    std::memcpy(&value, &bytes[offset], sizeof(value));
+    return value;
+}
+
+uint64_t ReadU64(const std::vector<unsigned char>& bytes, size_t offset)
+{
+    uint64_t value;
+    std::memcpy(&value, &bytes[offset], sizeof(value));
+    return value;
+}
+
+int64_t ReadI64(const std::vector<unsigned char>& bytes, size_t offset)
+{
+    int64_t value;
+    std::memcpy(&value, &bytes[offset], sizeof(value));
+    return value;
+}
+
+size_t FbxHeaderSize(uint32_t version)
+{
+    return (version >= 7500) ? 25 : 13;
+}
+
+size_t FbxNullRecordSize(uint32_t version)
+{
+    return FbxHeaderSize(version);
+}
+
+bool ReadFbxNodeHeader(const std::vector<unsigned char>& bytes, uint32_t version, size_t& offset, FbxNodeHeader& header)
+{
+    if (offset + FbxHeaderSize(version) > bytes.size())
+        return false;
+
+    uint64_t name_length = 0;
+    if (version >= 7500)
+    {
+        header.end_offset = ReadU64(bytes, offset + 0);
+        header.num_properties = ReadU64(bytes, offset + 8);
+        header.property_list_length = ReadU64(bytes, offset + 16);
+        name_length = bytes[offset + 24];
+        offset += 25;
+    }
+    else
+    {
+        header.end_offset = ReadU32(bytes, offset + 0);
+        header.num_properties = ReadU32(bytes, offset + 4);
+        header.property_list_length = ReadU32(bytes, offset + 8);
+        name_length = bytes[offset + 12];
+        offset += 13;
+    }
+
+    if (header.end_offset == 0 && header.num_properties == 0 && header.property_list_length == 0 && name_length == 0)
+        return false;
+
+    if (offset + name_length > bytes.size())
+        return false;
+
+    header.name.assign((const char*)&bytes[offset], (size_t)name_length);
+    offset += (size_t)name_length;
+    return true;
+}
+
+bool SkipFbxProperty(const std::vector<unsigned char>& bytes, size_t& offset)
+{
+    if (offset >= bytes.size())
+        return false;
+
+    const char type = (char)bytes[offset++];
+    switch (type)
+    {
+        case 'Y': offset += 2; return offset <= bytes.size();
+        case 'C': offset += 1; return offset <= bytes.size();
+        case 'I': offset += 4; return offset <= bytes.size();
+        case 'F': offset += 4; return offset <= bytes.size();
+        case 'D': offset += 8; return offset <= bytes.size();
+        case 'L': offset += 8; return offset <= bytes.size();
+        case 'R':
+        case 'S':
+        {
+            if (offset + 4 > bytes.size())
+                return false;
+            const uint32_t length = ReadU32(bytes, offset);
+            offset += 4 + length;
+            return offset <= bytes.size();
+        }
+        case 'f':
+        case 'd':
+        case 'i':
+        case 'l':
+        case 'b':
+        {
+            if (offset + 12 > bytes.size())
+                return false;
+            const uint32_t compressed_length = ReadU32(bytes, offset + 8);
+            offset += 12 + compressed_length;
+            return offset <= bytes.size();
+        }
+        default:
+            return false;
+    }
+}
+
+bool SkipFbxProperties(const std::vector<unsigned char>& bytes, uint64_t count, size_t& offset)
+{
+    for (uint64_t i = 0; i < count; ++i)
+    {
+        if (!SkipFbxProperty(bytes, offset))
+            return false;
+    }
+    return true;
+}
+
+bool ReadFbxStringProperty(const std::vector<unsigned char>& bytes, size_t& offset, std::string& value)
+{
+    if (offset + 5 > bytes.size() || bytes[offset] != 'S')
+        return false;
+
+    ++offset;
+    const uint32_t length = ReadU32(bytes, offset);
+    offset += 4;
+    if (offset + length > bytes.size())
+        return false;
+
+    value.assign((const char*)&bytes[offset], (size_t)length);
+    offset += length;
+    return true;
+}
+
+template <typename T>
+bool ReadFbxArrayProperty(const std::vector<unsigned char>& bytes, size_t& offset, char expected_type, std::vector<T>& values)
+{
+    if (offset + 13 > bytes.size() || bytes[offset] != expected_type)
+        return false;
+
+    ++offset;
+    const uint32_t count = ReadU32(bytes, offset + 0);
+    const uint32_t encoding = ReadU32(bytes, offset + 4);
+    const uint32_t compressed_length = ReadU32(bytes, offset + 8);
+    offset += 12;
+
+    if (offset + compressed_length > bytes.size())
+        return false;
+
+    const size_t expected_size = (size_t)count * sizeof(T);
+    values.resize(count);
+
+    if (encoding == 0)
+    {
+        if (compressed_length < expected_size)
+            return false;
+        std::memcpy(values.data(), &bytes[offset], expected_size);
+    }
+    else if (encoding == 1)
+    {
+        int decoded_length = 0;
+        char* decoded = stbi_zlib_decode_malloc_guesssize((const char*)&bytes[offset], (int)compressed_length, (int)expected_size, &decoded_length);
+        if (decoded == NULL || decoded_length < (int)expected_size)
+        {
+            if (decoded != NULL)
+                stbi_image_free(decoded);
+            return false;
+        }
+
+        std::memcpy(values.data(), decoded, expected_size);
+        stbi_image_free(decoded);
+    }
+    else
+    {
+        return false;
+    }
+
+    offset += compressed_length;
+    return true;
+}
+
+std::string ResolveExistingPath(const char* filename)
+{
+    const std::string requested(filename);
+    const std::string candidates[] = {
+        requested,
+        std::string("../../") + requested,
+        std::string("../") + requested
+    };
+
+    for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); ++i)
+    {
+        std::ifstream file(candidates[i].c_str(), std::ios::binary);
+        if (file.good())
+            return candidates[i];
+    }
+
+    return requested;
+}
+
+bool ReadWholeFile(const std::string& path, std::vector<unsigned char>& bytes)
+{
+    std::ifstream file(path.c_str(), std::ios::binary);
+    if (!file.good())
+        return false;
+
+    file.seekg(0, std::ios::end);
+    const std::streamoff size = file.tellg();
+    file.seekg(0, std::ios::beg);
+    if (size <= 0)
+        return false;
+
+    bytes.resize((size_t)size);
+    file.read((char*)bytes.data(), size);
+    return file.good();
+}
+
+bool ParseFbxLayerElementNormal(const std::vector<unsigned char>& bytes, uint32_t version, size_t start, uint64_t end, FbxMeshData& mesh)
+{
+    size_t offset = start;
+    while (offset < (size_t)end - FbxNullRecordSize(version))
+    {
+        FbxNodeHeader child;
+        if (!ReadFbxNodeHeader(bytes, version, offset, child))
+            break;
+
+        size_t prop_offset = offset;
+        if (child.name == "Normals")
+            ReadFbxArrayProperty<double>(bytes, prop_offset, 'd', mesh.normals);
+        else if (child.name == "MappingInformationType")
+            ReadFbxStringProperty(bytes, prop_offset, mesh.normal_mapping);
+        else if (child.name == "ReferenceInformationType")
+            ReadFbxStringProperty(bytes, prop_offset, mesh.normal_reference);
+
+        offset = (size_t)child.end_offset;
+    }
+
+    return !mesh.normals.empty();
+}
+
+bool ParseFbxLayerElementUV(const std::vector<unsigned char>& bytes, uint32_t version, size_t start, uint64_t end, FbxMeshData& mesh)
+{
+    size_t offset = start;
+    while (offset < (size_t)end - FbxNullRecordSize(version))
+    {
+        FbxNodeHeader child;
+        if (!ReadFbxNodeHeader(bytes, version, offset, child))
+            break;
+
+        size_t prop_offset = offset;
+        if (child.name == "UV")
+            ReadFbxArrayProperty<double>(bytes, prop_offset, 'd', mesh.uvs);
+        else if (child.name == "UVIndex")
+            ReadFbxArrayProperty<int32_t>(bytes, prop_offset, 'i', mesh.uv_indices);
+        else if (child.name == "MappingInformationType")
+            ReadFbxStringProperty(bytes, prop_offset, mesh.uv_mapping);
+        else if (child.name == "ReferenceInformationType")
+            ReadFbxStringProperty(bytes, prop_offset, mesh.uv_reference);
+
+        offset = (size_t)child.end_offset;
+    }
+
+    return !mesh.uvs.empty();
+}
+
+bool ParseFbxGeometry(const std::vector<unsigned char>& bytes, uint32_t version, size_t start, uint64_t end, FbxMeshData& mesh)
+{
+    size_t offset = start;
+    while (offset < (size_t)end - FbxNullRecordSize(version))
+    {
+        FbxNodeHeader child;
+        if (!ReadFbxNodeHeader(bytes, version, offset, child))
+            break;
+
+        size_t prop_offset = offset;
+        if (child.name == "Vertices")
+            ReadFbxArrayProperty<double>(bytes, prop_offset, 'd', mesh.vertices);
+        else if (child.name == "PolygonVertexIndex")
+            ReadFbxArrayProperty<int32_t>(bytes, prop_offset, 'i', mesh.polygon_indices);
+        else if (child.name == "LayerElementNormal")
+        {
+            SkipFbxProperties(bytes, child.num_properties, prop_offset);
+            ParseFbxLayerElementNormal(bytes, version, prop_offset, child.end_offset, mesh);
+        }
+        else if (child.name == "LayerElementUV")
+        {
+            SkipFbxProperties(bytes, child.num_properties, prop_offset);
+            ParseFbxLayerElementUV(bytes, version, prop_offset, child.end_offset, mesh);
+        }
+
+        offset = (size_t)child.end_offset;
+    }
+
+    return !mesh.vertices.empty() && !mesh.polygon_indices.empty();
+}
+
+bool AppendFbxMeshAsStaticVertices(const FbxMeshData& mesh, std::vector<SalarymanStaticVertex>& vertices)
+{
+    std::vector<int> polygon_vertices;
+    std::vector<int> polygon_vertex_ordinals;
+    size_t polygon_start_ordinal = 0;
+
+    auto emit_vertex = [&](int polygon_vertex_index)
+    {
+        const int vertex_index = polygon_vertices[polygon_vertex_index];
+        const int polygon_ordinal = polygon_vertex_ordinals[polygon_vertex_index];
+        if (vertex_index < 0 || (size_t)(3 * vertex_index + 2) >= mesh.vertices.size())
+            return;
+
+        SalarymanStaticVertex vertex;
+        vertex.px = (float)mesh.vertices[3 * vertex_index + 0];
+        vertex.py = (float)mesh.vertices[3 * vertex_index + 1];
+        vertex.pz = (float)mesh.vertices[3 * vertex_index + 2];
+        vertex.pw = 1.0f;
+
+        glm::vec3 normal(0.0f, 1.0f, 0.0f);
+        if (mesh.normal_mapping == "ByPolygonVertex" && mesh.normal_reference == "Direct" && (size_t)(3 * polygon_ordinal + 2) < mesh.normals.size())
+        {
+            normal = glm::vec3((float)mesh.normals[3 * polygon_ordinal + 0],
+                               (float)mesh.normals[3 * polygon_ordinal + 1],
+                               (float)mesh.normals[3 * polygon_ordinal + 2]);
+        }
+        else if (mesh.normal_mapping == "ByVertice" && (size_t)(3 * vertex_index + 2) < mesh.normals.size())
+        {
+            normal = glm::vec3((float)mesh.normals[3 * vertex_index + 0],
+                               (float)mesh.normals[3 * vertex_index + 1],
+                               (float)mesh.normals[3 * vertex_index + 2]);
+        }
+
+        if (glm::length(normal) > 0.0001f)
+            normal = glm::normalize(normal);
+        vertex.nx = normal.x;
+        vertex.ny = normal.y;
+        vertex.nz = normal.z;
+        vertex.nw = 0.0f;
+
+        vertex.u = 0.0f;
+        vertex.v = 0.0f;
+        if (mesh.uv_mapping == "ByPolygonVertex")
+        {
+            int uv_index = polygon_ordinal;
+            if (mesh.uv_reference == "IndexToDirect" && (size_t)polygon_ordinal < mesh.uv_indices.size())
+                uv_index = mesh.uv_indices[polygon_ordinal];
+
+            if (uv_index >= 0 && (size_t)(2 * uv_index + 1) < mesh.uvs.size())
+            {
+                vertex.u = (float)mesh.uvs[2 * uv_index + 0];
+                vertex.v = (float)mesh.uvs[2 * uv_index + 1];
+            }
+        }
+
+        vertices.push_back(vertex);
+    };
+
+    for (size_t i = 0; i < mesh.polygon_indices.size(); ++i)
+    {
+        int index = mesh.polygon_indices[i];
+        const bool last_vertex_in_polygon = index < 0;
+        if (last_vertex_in_polygon)
+            index = -index - 1;
+
+        polygon_vertices.push_back(index);
+        polygon_vertex_ordinals.push_back((int)(polygon_start_ordinal + polygon_vertices.size() - 1));
+
+        if (last_vertex_in_polygon)
+        {
+            if (polygon_vertices.size() >= 3)
+            {
+                for (size_t triangle = 1; triangle + 1 < polygon_vertices.size(); ++triangle)
+                {
+                    emit_vertex(0);
+                    emit_vertex((int)triangle);
+                    emit_vertex((int)triangle + 1);
+                }
+            }
+
+            polygon_start_ordinal = i + 1;
+            polygon_vertices.clear();
+            polygon_vertex_ordinals.clear();
+        }
+    }
+
+    return true;
+}
+}
+
+bool LoadSalarymanStaticModel(StaticModel& model, const char* filename)
+{
+    const std::string path = ResolveExistingPath(filename);
+    printf("Carregando modelo estatico do salaryman \"%s\"...\n", path.c_str());
+
+    std::vector<unsigned char> bytes;
+    if (!ReadWholeFile(path, bytes) || bytes.size() < 27)
+    {
+        fprintf(stderr, "ERROR: Cannot open FBX file \"%s\".\n", path.c_str());
+        return false;
+    }
+
+    const char fbx_magic[] = "Kaydara FBX Binary";
+    if (std::memcmp(bytes.data(), fbx_magic, sizeof(fbx_magic) - 1) != 0)
+    {
+        fprintf(stderr, "ERROR: Salaryman loader only supports binary FBX files.\n");
+        return false;
+    }
+
+    const uint32_t version = ReadU32(bytes, 23);
+    std::vector<SalarymanStaticVertex> raw_vertices;
+
+    size_t offset = 27;
+    while (offset < bytes.size())
+    {
+        FbxNodeHeader node;
+        if (!ReadFbxNodeHeader(bytes, version, offset, node))
+            break;
+
+        size_t prop_offset = offset;
+        SkipFbxProperties(bytes, node.num_properties, prop_offset);
+
+        if (node.name == "Objects")
+        {
+            size_t object_offset = prop_offset;
+            while (object_offset < (size_t)node.end_offset - FbxNullRecordSize(version))
+            {
+                FbxNodeHeader object_node;
+                if (!ReadFbxNodeHeader(bytes, version, object_offset, object_node))
+                    break;
+
+                size_t object_prop_offset = object_offset;
+                if (object_node.name == "Geometry")
+                {
+                    SkipFbxProperties(bytes, object_node.num_properties, object_prop_offset);
+
+                    FbxMeshData mesh;
+                    if (ParseFbxGeometry(bytes, version, object_prop_offset, object_node.end_offset, mesh))
+                        AppendFbxMeshAsStaticVertices(mesh, raw_vertices);
+                }
+
+                object_offset = (size_t)object_node.end_offset;
+            }
+        }
+
+        offset = (size_t)node.end_offset;
+    }
+
+    if (raw_vertices.empty())
+    {
+        fprintf(stderr, "ERROR: No static mesh geometry found in \"%s\".\n", path.c_str());
+        return false;
+    }
+
+    glm::vec3 raw_min(std::numeric_limits<float>::max());
+    glm::vec3 raw_max(std::numeric_limits<float>::lowest());
+    for (size_t i = 0; i < raw_vertices.size(); ++i)
+    {
+        glm::vec3 p(raw_vertices[i].px, raw_vertices[i].py, raw_vertices[i].pz);
+        raw_min.x = std::min(raw_min.x, p.x); raw_min.y = std::min(raw_min.y, p.y); raw_min.z = std::min(raw_min.z, p.z);
+        raw_max.x = std::max(raw_max.x, p.x); raw_max.y = std::max(raw_max.y, p.y); raw_max.z = std::max(raw_max.z, p.z);
+    }
+
+    const float raw_height = std::max(1.0f, raw_max.y - raw_min.y);
+    const float model_scale = 1.75f / raw_height;
+    const glm::vec3 origin((raw_min.x + raw_max.x) * 0.5f, raw_min.y, (raw_min.z + raw_max.z) * 0.5f);
+
+    std::vector<GLuint> indices;
+    indices.reserve(raw_vertices.size());
+    glm::vec3 bbox_min(std::numeric_limits<float>::max());
+    glm::vec3 bbox_max(std::numeric_limits<float>::lowest());
+
+    for (size_t i = 0; i < raw_vertices.size(); ++i)
+    {
+        raw_vertices[i].px = (raw_vertices[i].px - origin.x) * model_scale;
+        raw_vertices[i].py = (raw_vertices[i].py - origin.y) * model_scale;
+        raw_vertices[i].pz = (raw_vertices[i].pz - origin.z) * model_scale;
+
+        glm::vec3 p(raw_vertices[i].px, raw_vertices[i].py, raw_vertices[i].pz);
+        bbox_min.x = std::min(bbox_min.x, p.x); bbox_min.y = std::min(bbox_min.y, p.y); bbox_min.z = std::min(bbox_min.z, p.z);
+        bbox_max.x = std::max(bbox_max.x, p.x); bbox_max.y = std::max(bbox_max.y, p.y); bbox_max.z = std::max(bbox_max.z, p.z);
+        indices.push_back((GLuint)i);
+    }
+
+    GLuint vertex_array_object_id;
+    glGenVertexArrays(1, &vertex_array_object_id);
+    glBindVertexArray(vertex_array_object_id);
+
+    GLuint vertex_buffer_id;
+    glGenBuffers(1, &vertex_buffer_id);
+    glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer_id);
+    glBufferData(GL_ARRAY_BUFFER, raw_vertices.size() * sizeof(SalarymanStaticVertex), raw_vertices.data(), GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(SalarymanStaticVertex), (void*)offsetof(SalarymanStaticVertex, px));
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(SalarymanStaticVertex), (void*)offsetof(SalarymanStaticVertex, nx));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(SalarymanStaticVertex), (void*)offsetof(SalarymanStaticVertex, u));
+    glEnableVertexAttribArray(2);
+
+    GLuint index_buffer_id;
+    glGenBuffers(1, &index_buffer_id);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, index_buffer_id);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(GLuint), indices.data(), GL_STATIC_DRAW);
+
+    const std::string object_name = "salaryman_static_model";
+    SceneObject object;
+    object.name = object_name;
+    object.first_index = 0;
+    object.num_indices = indices.size();
+    object.rendering_mode = GL_TRIANGLES;
+    object.vertex_array_object_id = vertex_array_object_id;
+    object.bbox_min = bbox_min;
+    object.bbox_max = bbox_max;
+    g_VirtualScene[object_name] = object;
+
+    glBindVertexArray(0);
+
+    model.object_names.clear();
+    model.object_names.push_back(object_name);
+    model.bbox_min = bbox_min;
+    model.bbox_max = bbox_max;
+
+    printf("OK (%zu vertices estaticos).\n", raw_vertices.size());
+    return true;
+}
+
+void SpawnSalarymanForCorridor(SalarymanNPC& salaryman, const CanonicalCorridorDefinition& corridor, const glm::vec3& player_position)
+{
+    glm::vec3 path_forward = corridor.forward;
+    if (glm::length(path_forward) < 0.0001f)
+        path_forward = glm::vec3(0.0f, 0.0f, -1.0f);
+    else
+        path_forward = glm::normalize(path_forward);
+
+    const glm::vec3 spawn_position = ComputeSalarymanSpawnPosition(corridor);
+    salaryman.active = true;
+    salaryman.corridorId = corridor.corridorId;
+    salaryman.position = spawn_position;
+    salaryman.forward = path_forward;
+    salaryman.speed = 1.35f;
+    salaryman.corridorLength = corridor.length;
+    salaryman.corridorOrigin = corridor.origin;
+    salaryman.useAnimation = false;
+
+    printf("Salaryman spawn: corridorId=%d, corridorStart=(%.2f, %.2f, %.2f), corridorForward=(%.2f, %.2f, %.2f), corridorLength=%.2f, connectorLength=%.2f, spawnPosition=(%.2f, %.2f, %.2f), npcForward=(%.2f, %.2f, %.2f), playerPosition=(%.2f, %.2f, %.2f)\n",
+           corridor.corridorId,
+           corridor.origin.x, corridor.origin.y, corridor.origin.z,
+           path_forward.x, path_forward.y, path_forward.z,
+           corridor.length,
+           corridor.connectorLength,
+           salaryman.position.x, salaryman.position.y, salaryman.position.z,
+           salaryman.forward.x, salaryman.forward.y, salaryman.forward.z,
+           player_position.x, player_position.y, player_position.z);
+}
+
+void UpdateSalarymanNPC(SalarymanNPC& salaryman, float delta_time, const glm::vec4& camera_position_c)
+{
+    if (!salaryman.active)
+        return;
+
+    if (salaryman.useAnimation)
+    {
+        // Future animation update code
+    }
+
+    salaryman.position += salaryman.forward * salaryman.speed * delta_time;
+
+    const float corridor_progress = glm::dot(salaryman.position - salaryman.corridorOrigin, salaryman.forward);
+    const glm::vec3 camera_position(camera_position_c.x, camera_position_c.y, camera_position_c.z);
+    const float player_distance = glm::length(salaryman.position - camera_position);
+
+    if (corridor_progress < -2.0f)
+    {
+        printf("Salaryman despawn: reason=behind_spawn corridorId=%d progress=%.2f playerDistance=%.2f position=(%.2f, %.2f, %.2f), active=false\n",
+               salaryman.corridorId, corridor_progress, player_distance, salaryman.position.x, salaryman.position.y, salaryman.position.z);
+        salaryman.active = false;
+    }
+    else if (corridor_progress > salaryman.corridorLength + 2.0f)
+    {
+        printf("Salaryman despawn: reason=exited_corridor corridorId=%d progress=%.2f playerDistance=%.2f position=(%.2f, %.2f, %.2f), active=false\n",
+               salaryman.corridorId, corridor_progress, player_distance, salaryman.position.x, salaryman.position.y, salaryman.position.z);
+        salaryman.active = false;
+    }
+    else if (player_distance > 55.0f)
+    {
+        printf("Salaryman despawn: reason=too_far corridorId=%d progress=%.2f playerDistance=%.2f position=(%.2f, %.2f, %.2f), active=false\n",
+               salaryman.corridorId, corridor_progress, player_distance, salaryman.position.x, salaryman.position.y, salaryman.position.z);
+        salaryman.active = false;
+    }
+}
+
+void DrawStaticModel(const StaticModel& model)
+{
+    for (size_t i = 0; i < model.object_names.size(); ++i)
+        DrawVirtualObject(model.object_names[i].c_str());
+}
+
+void DrawSalarymanNPC(const SalarymanNPC& salaryman, const Material& material)
+{
+    if (!salaryman.active || salaryman.model == NULL)
+        return;
+
+    glm::vec3 forward = salaryman.forward;
+    if (glm::length(forward) < 0.0001f)
+        forward = glm::vec3(0.0f, 0.0f, -1.0f);
+    else
+        forward = glm::normalize(forward);
+
+    const glm::vec3 up(0.0f, 1.0f, 0.0f);
+    glm::vec3 right = glm::cross(up, forward);
+    if (glm::length(right) < 0.0001f)
+        right = glm::vec3(1.0f, 0.0f, 0.0f);
+    else
+        right = glm::normalize(right);
+
+    const glm::vec3 corrected_up = glm::normalize(glm::cross(forward, right));
+    const glm::vec3 p = salaryman.position;
+    const glm::mat4 model_matrix = Matrix(
+        right.x, corrected_up.x, forward.x, p.x,
+        right.y, corrected_up.y, forward.y, p.y,
+        right.z, corrected_up.z, forward.z, p.z,
+        0.0f,    0.0f,           0.0f,      1.0f
+    );
+
+    glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model_matrix));
+    ApplyMaterial(material);
+
+    if (salaryman.useAnimation)
+    {
+        // Future DrawAnimatedModel(...) call.
+    }
+    else
+    {
+        DrawStaticModel(*salaryman.model);
+    }
 }
 
 void BuildPostersAndAddToVirtualScene()
@@ -1045,6 +1981,7 @@ void LoadShadersFromFiles()
     g_material_shininess_uniform = glGetUniformLocation(g_GpuProgramID, "material.shininess");
     g_material_ambient_strength_uniform = glGetUniformLocation(g_GpuProgramID, "material.ambient_strength");
     g_material_uv_scale_uniform = glGetUniformLocation(g_GpuProgramID, "material.uv_scale");
+    g_material_uv_offset_uniform = glGetUniformLocation(g_GpuProgramID, "material.uv_offset");
     g_num_lights_uniform = glGetUniformLocation(g_GpuProgramID, "num_lights");
 
     for (int i = 0; i < kMaxLights; ++i)
@@ -1218,10 +2155,24 @@ void BuildCorridorAndAddToVirtualScene()
     auto add_quad = [&](const std::string& name,
                         glm::vec3 p0, glm::vec3 p1, glm::vec3 p2, glm::vec3 p3,
                         glm::vec3 normal,
-                        float u_max, float v_max)
+                        glm::vec3 uv_origin,
+                        glm::vec3 uv_u_axis,
+                        glm::vec3 uv_v_axis,
+                        float u_tile_size,
+                        float v_tile_size)
     {
         size_t first_index = indices.size();
         GLuint base_vertex = static_cast<GLuint>(vertices.size());
+
+        auto make_uv = [&](const glm::vec3& p)
+        {
+            glm::vec3 u_axis = glm::normalize(uv_u_axis);
+            glm::vec3 v_axis = glm::normalize(uv_v_axis);
+            glm::vec3 delta = p - uv_origin;
+            float u = glm::dot(delta, u_axis);
+            float v = glm::dot(delta, v_axis);
+            return glm::vec2(u / u_tile_size, v / v_tile_size);
+        };
 
         auto push_vertex = [&](glm::vec3 p, float u, float v)
         {
@@ -1232,10 +2183,15 @@ void BuildCorridorAndAddToVirtualScene()
             vertices.push_back(vertex);
         };
 
-        push_vertex(p0, 0.0f, 0.0f);
-        push_vertex(p1, u_max, 0.0f);
-        push_vertex(p2, u_max, v_max);
-        push_vertex(p3, 0.0f, v_max);
+        glm::vec2 uv0 = make_uv(p0);
+        glm::vec2 uv1 = make_uv(p1);
+        glm::vec2 uv2 = make_uv(p2);
+        glm::vec2 uv3 = make_uv(p3);
+
+        push_vertex(p0, uv0.x, uv0.y);
+        push_vertex(p1, uv1.x, uv1.y);
+        push_vertex(p2, uv2.x, uv2.y);
+        push_vertex(p3, uv3.x, uv3.y);
 
         indices.push_back(base_vertex + 0);
         indices.push_back(base_vertex + 1);
@@ -1276,7 +2232,10 @@ void BuildCorridorAndAddToVirtualScene()
              glm::vec3(+half_width, 0.0f, z1),
              glm::vec3(-half_width, 0.0f, z1),
              glm::vec3(0.0f, 1.0f, 0.0f),
-             1.0f, 1.0f);
+             glm::vec3(-half_width, 0.0f, z0),
+             glm::vec3(1.0f, 0.0f, 0.0f),
+             glm::vec3(0.0f, 0.0f, -1.0f),
+             kFloorTileSize, kFloorTileSize);
 
     add_quad("corridor_ceiling",
              glm::vec3(-half_width, corridor_height, z1),
@@ -1284,7 +2243,10 @@ void BuildCorridorAndAddToVirtualScene()
              glm::vec3(+half_width, corridor_height, z0),
              glm::vec3(-half_width, corridor_height, z0),
              glm::vec3(0.0f, -1.0f, 0.0f),
-             1.0f, 1.0f);
+             glm::vec3(-half_width, corridor_height, z0),
+             glm::vec3(1.0f, 0.0f, 0.0f),
+             glm::vec3(0.0f, 0.0f, -1.0f),
+             kCeilingTileSize, kCeilingTileSize);
 
     add_quad("corridor_wall_left",
              glm::vec3(-half_width, 0.0f, z0),
@@ -1292,7 +2254,10 @@ void BuildCorridorAndAddToVirtualScene()
              glm::vec3(-half_width, corridor_height, z1),
              glm::vec3(-half_width, corridor_height, z0),
              glm::vec3(1.0f, 0.0f, 0.0f),
-             1.0f, 1.0f);
+             glm::vec3(-half_width, 0.0f, z0),
+             glm::vec3(0.0f, 0.0f, -1.0f),
+             glm::vec3(0.0f, 1.0f, 0.0f),
+             kWallTextureTileSize, kWallTextureTileSize);
 
     add_quad("corridor_wall_right",
              glm::vec3(+half_width, 0.0f, z1),
@@ -1300,7 +2265,10 @@ void BuildCorridorAndAddToVirtualScene()
              glm::vec3(+half_width, corridor_height, z0),
              glm::vec3(+half_width, corridor_height, z1),
              glm::vec3(-1.0f, 0.0f, 0.0f),
-             1.0f, 1.0f);
+             glm::vec3(+half_width, 0.0f, z0),
+             glm::vec3(0.0f, 0.0f, -1.0f),
+             glm::vec3(0.0f, 1.0f, 0.0f),
+             kWallTextureTileSize, kWallTextureTileSize);
 
     GLuint vertex_buffer_id;
     glGenBuffers(1, &vertex_buffer_id);
@@ -1329,15 +2297,37 @@ void BuildCornerAndAddToVirtualScene()
     // Agora recebemos 4 booleanos, um para cada parede possível!
     auto build_corner_parts = [&](const std::string& prefix, bool wall_front, bool wall_back, bool wall_left, bool wall_right)
     {
-        auto add_quad = [&](const std::string& name, glm::vec3 p0, glm::vec3 p1, glm::vec3 p2, glm::vec3 p3, glm::vec3 normal)
+        auto add_quad = [&](const std::string& name,
+                            glm::vec3 p0, glm::vec3 p1, glm::vec3 p2, glm::vec3 p3,
+                            glm::vec3 normal,
+                            glm::vec3 uv_origin,
+                            glm::vec3 uv_u_axis,
+                            glm::vec3 uv_v_axis,
+                            float u_tile_size,
+                            float v_tile_size)
         {
             std::vector<CornerVertex> vertices;
             std::vector<GLuint> indices = {0, 1, 2, 0, 2, 3};
 
-            vertices.push_back({p0.x, p0.y, p0.z, 1.0f, normal.x, normal.y, normal.z, 0.0f, 0.0f, 0.0f});
-            vertices.push_back({p1.x, p1.y, p1.z, 1.0f, normal.x, normal.y, normal.z, 0.0f, 1.0f, 0.0f});
-            vertices.push_back({p2.x, p2.y, p2.z, 1.0f, normal.x, normal.y, normal.z, 0.0f, 1.0f, 1.0f});
-            vertices.push_back({p3.x, p3.y, p3.z, 1.0f, normal.x, normal.y, normal.z, 0.0f, 0.0f, 1.0f});
+            auto make_uv = [&](const glm::vec3& p)
+            {
+                glm::vec3 u_axis = glm::normalize(uv_u_axis);
+                glm::vec3 v_axis = glm::normalize(uv_v_axis);
+                glm::vec3 delta = p - uv_origin;
+                float u = glm::dot(delta, u_axis);
+                float v = glm::dot(delta, v_axis);
+                return glm::vec2(u / u_tile_size, v / v_tile_size);
+            };
+
+            glm::vec2 uv0 = make_uv(p0);
+            glm::vec2 uv1 = make_uv(p1);
+            glm::vec2 uv2 = make_uv(p2);
+            glm::vec2 uv3 = make_uv(p3);
+
+            vertices.push_back({p0.x, p0.y, p0.z, 1.0f, normal.x, normal.y, normal.z, 0.0f, uv0.x, uv0.y});
+            vertices.push_back({p1.x, p1.y, p1.z, 1.0f, normal.x, normal.y, normal.z, 0.0f, uv1.x, uv1.y});
+            vertices.push_back({p2.x, p2.y, p2.z, 1.0f, normal.x, normal.y, normal.z, 0.0f, uv2.x, uv2.y});
+            vertices.push_back({p3.x, p3.y, p3.z, 1.0f, normal.x, normal.y, normal.z, 0.0f, uv3.x, uv3.y});
 
             GLuint vao, vbo, ebo;
             glGenVertexArrays(1, &vao); glBindVertexArray(vao);
@@ -1364,14 +2354,42 @@ void BuildCornerAndAddToVirtualScene()
         const float z1 = -kCornerLength;
 
         // Chão e Teto
-        add_quad(prefix + "_floor", glm::vec3(-hw, 0.0f, z0), glm::vec3(hw, 0.0f, z0), glm::vec3(hw, 0.0f, z1), glm::vec3(-hw, 0.0f, z1), glm::vec3(0.0f, 1.0f, 0.0f));
-        add_quad(prefix + "_ceiling", glm::vec3(-hw, h, z1), glm::vec3(hw, h, z1), glm::vec3(hw, h, z0), glm::vec3(-hw, h, z0), glm::vec3(0.0f, -1.0f, 0.0f));
+        add_quad(prefix + "_floor",
+                 glm::vec3(-hw, 0.0f, z0), glm::vec3(hw, 0.0f, z0), glm::vec3(hw, 0.0f, z1), glm::vec3(-hw, 0.0f, z1),
+                 glm::vec3(0.0f, 1.0f, 0.0f),
+                 glm::vec3(-hw, 0.0f, z0), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f),
+                 kFloorTileSize, kFloorTileSize);
+        add_quad(prefix + "_ceiling",
+                 glm::vec3(-hw, h, z1), glm::vec3(hw, h, z1), glm::vec3(hw, h, z0), glm::vec3(-hw, h, z0),
+                 glm::vec3(0.0f, -1.0f, 0.0f),
+                 glm::vec3(-hw, h, z0), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f),
+                 kCeilingTileSize, kCeilingTileSize);
         
         // Paredes dinâmicas (só cria se for TRUE)
-        if (wall_front) add_quad(prefix + "_wall_front", glm::vec3(hw, 0.0f, z0), glm::vec3(-hw, 0.0f, z0), glm::vec3(-hw, h, z0), glm::vec3(hw, h, z0), glm::vec3(0.0f, 0.0f, -1.0f));
-        if (wall_back)  add_quad(prefix + "_wall_back", glm::vec3(-hw, 0.0f, z1), glm::vec3(hw, 0.0f, z1), glm::vec3(hw, h, z1), glm::vec3(-hw, h, z1), glm::vec3(0.0f, 0.0f, 1.0f));
-        if (wall_left)  add_quad(prefix + "_wall_left", glm::vec3(-hw, 0.0f, z0), glm::vec3(-hw, 0.0f, z1), glm::vec3(-hw, h, z1), glm::vec3(-hw, h, z0), glm::vec3(1.0f, 0.0f, 0.0f));
-        if (wall_right) add_quad(prefix + "_wall_right", glm::vec3(hw, 0.0f, z1), glm::vec3(hw, 0.0f, z0), glm::vec3(hw, h, z0), glm::vec3(hw, h, z1), glm::vec3(-1.0f, 0.0f, 0.0f));
+        if (wall_front)
+            add_quad(prefix + "_wall_front",
+                     glm::vec3(hw, 0.0f, z0), glm::vec3(-hw, 0.0f, z0), glm::vec3(-hw, h, z0), glm::vec3(hw, h, z0),
+                     glm::vec3(0.0f, 0.0f, -1.0f),
+                     glm::vec3(hw, 0.0f, z0), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f),
+                     kWallTextureTileSize, kWallTextureTileSize);
+        if (wall_back)
+            add_quad(prefix + "_wall_back",
+                     glm::vec3(-hw, 0.0f, z1), glm::vec3(hw, 0.0f, z1), glm::vec3(hw, h, z1), glm::vec3(-hw, h, z1),
+                     glm::vec3(0.0f, 0.0f, 1.0f),
+                     glm::vec3(-hw, 0.0f, z1), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f),
+                     kWallTextureTileSize, kWallTextureTileSize);
+        if (wall_left)
+            add_quad(prefix + "_wall_left",
+                     glm::vec3(-hw, 0.0f, z0), glm::vec3(-hw, 0.0f, z1), glm::vec3(-hw, h, z1), glm::vec3(-hw, h, z0),
+                     glm::vec3(1.0f, 0.0f, 0.0f),
+                     glm::vec3(-hw, 0.0f, z0), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, 1.0f, 0.0f),
+                     kWallTextureTileSize, kWallTextureTileSize);
+        if (wall_right)
+            add_quad(prefix + "_wall_right",
+                     glm::vec3(hw, 0.0f, z1), glm::vec3(hw, 0.0f, z0), glm::vec3(hw, h, z0), glm::vec3(hw, h, z1),
+                     glm::vec3(-1.0f, 0.0f, 0.0f),
+                     glm::vec3(hw, 0.0f, z0), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, 1.0f, 0.0f),
+                     kWallTextureTileSize, kWallTextureTileSize);
     };
 
     // Quina 1 (Vira à esquerda): Aberta na frente (para o Corredor 1) e aberta na esquerda (para o Conector).
@@ -1717,23 +2735,22 @@ void UpdateCameraFromInput(GLFWwindow* window, float delta_time)
     const float first_x_limit = kCorridorHalfWidth - player_radius;
     const float first_z_max = 0.8f;
 
-    const float corridor2_offset_x = -(4.0f * kCorridorHalfWidth + kConnectorLength);
-    const float second_corridor_z_offset = kCorridorZ1 - 2.0f * kCornerLength - kConnectorLength;
-    const glm::vec2 block_offset(corridor2_offset_x, second_corridor_z_offset);
+    const CanonicalCorridorLayout corridor_layout = GetCanonicalCorridorLayout();
+    const glm::vec2 block_offset = corridor_layout.block_offset;
     const float connector_half_width = kCorridorHalfWidth - player_radius;
     const float joint_overlap = player_radius * 2.0f;
-    const float turn_z0 = kCorridorZ1;
-    const float turn_z1 = turn_z0 - kCornerLength;
-    const float short1_center_z = turn_z0 - 0.5f * kCornerLength;
-    const float short1_start_x = -kCorridorHalfWidth;
-    const float short1_end_x = short1_start_x - kConnectorLength;
-    const float turn1_right_x = short1_end_x - kCorridorHalfWidth;
-    const float short2_start_z = turn_z1;
-    const float short2_end_z = short2_start_z - kConnectorLength;
-    const float turn2_left_x = turn1_right_x;
-    const float turn2_left_z = short2_end_z;
-    const float turn2_right_x = turn2_left_x - 2.0f * kCorridorHalfWidth;
-    const float turn2_right_z = turn2_left_z;
+    const float turn_z0 = corridor_layout.turn_z0;
+    const float turn_z1 = corridor_layout.turn_z1;
+    const float short1_center_z = corridor_layout.short1_center_z;
+    const float short1_start_x = corridor_layout.short1_start_x;
+    const float short1_end_x = corridor_layout.short1_end_x;
+    const float turn1_right_x = corridor_layout.turn1_right_x;
+    const float short2_start_z = corridor_layout.short2_start_z;
+    const float short2_end_z = corridor_layout.short2_end_z;
+    const float turn2_left_x = corridor_layout.turn2_left_x;
+    const float turn2_left_z = corridor_layout.turn2_left_z;
+    const float turn2_right_x = corridor_layout.turn2_right_x;
+    const float turn2_right_z = corridor_layout.turn2_right_z;
 
     // Todas as caixas abaixo estão no espaço local do "Bloco 0" (tile central).
     const WalkableBox2D corridor1 = {-first_x_limit, +first_x_limit, kCorridorZ1 - joint_overlap, first_z_max};
@@ -1828,18 +2845,121 @@ void UpdateCameraFromInput(GLFWwindow* window, float delta_time)
         p = best;
     }
 
+    const bool inside_straight_corridor = inside_box(corridor1, p.x, p.y);
+    bool inside_connector_turn = false;
+    for (size_t i = 1; i < sizeof(walkable_boxes) / sizeof(walkable_boxes[0]); ++i)
+    {
+        if (inside_box(walkable_boxes[i], p.x, p.y))
+        {
+            inside_connector_turn = true;
+            break;
+        }
+    }
+
+    const int player_section = inside_connector_turn ? 1 : 0;
+    if (player_section != g_LastPlayerSection)
+    {
+        const CanonicalCorridorDefinition canonical_corridor = MakeCurrentCanonicalCorridorDefinition(g_CurrentCorridorState.id);
+        printf("Corridor debug: playerSection=%s, traversalDirection=%d, currentCorridorId=%d, preparedCorridorId=%d, canonicalOrigin=(%.2f, %.2f, %.2f), canonicalForward=(%.2f, %.2f, %.2f), playerPosition=(%.2f, %.2f, %.2f), lastSpawnedCorridorId=%d, active=%s\n",
+               PlayerSectionName(player_section),
+               block_index,
+               g_CurrentCorridorState.id,
+               g_PreparedNextCorridorId,
+               canonical_corridor.origin.x, canonical_corridor.origin.y, canonical_corridor.origin.z,
+               canonical_corridor.forward.x, canonical_corridor.forward.y, canonical_corridor.forward.z,
+               g_CameraPosition.x, g_CameraPosition.y, g_CameraPosition.z,
+               g_LastSalarymanSpawnCorridorId,
+               g_SalarymanNPC.active ? "true" : "false");
+        g_LastPlayerSection = player_section;
+    }
+
+    auto log_connector_state = [&](int transition_direction)
+    {
+        if (transition_direction == 0)
+            return;
+
+        const CorridorState& prepared_state = (transition_direction > 0)
+                                            ? g_PositiveCandidateCorridorState
+                                            : g_NegativeCandidateCorridorState;
+        g_PreparedNextCorridorId = prepared_state.id;
+        g_PreparedTransitionDirection = transition_direction;
+
+        const CanonicalCorridorDefinition canonical_corridor = MakeCurrentCanonicalCorridorDefinition(prepared_state.id);
+        printf("Corridor prepare: playerSection=connector/turn, traversalDirection=%d, currentCorridorId=%d, preparedCorridorId=%d, canonicalOrigin=(%.2f, %.2f, %.2f), canonicalForward=(%.2f, %.2f, %.2f), playerPosition=(%.2f, %.2f, %.2f), lastSpawnedCorridorId=%d, active=%s, posterStatePrepared=true\n",
+               transition_direction,
+               g_CurrentCorridorState.id,
+               prepared_state.id,
+               canonical_corridor.origin.x, canonical_corridor.origin.y, canonical_corridor.origin.z,
+               canonical_corridor.forward.x, canonical_corridor.forward.y, canonical_corridor.forward.z,
+               g_CameraPosition.x, g_CameraPosition.y, g_CameraPosition.z,
+               g_LastSalarymanSpawnCorridorId,
+               g_SalarymanNPC.active ? "true" : "false");
+    };
+
+    if (inside_connector_turn)
+    {
+        const int transition_direction = (block_index < 0) ? -1 : +1;
+        if (!g_InConnectorTransition)
+        {
+            g_InConnectorTransition = true;
+            log_connector_state(transition_direction);
+        }
+    }
+    else if (inside_straight_corridor && g_InConnectorTransition)
+    {
+        const CanonicalCorridorDefinition canonical_corridor = MakeCurrentCanonicalCorridorDefinition(g_CurrentCorridorState.id);
+        printf("Corridor debug: connectorExitToStraight traversalDirection=%d, currentCorridorId=%d, preparedCorridorId=%d, canonicalOrigin=(%.2f, %.2f, %.2f), canonicalForward=(%.2f, %.2f, %.2f), playerPosition=(%.2f, %.2f, %.2f), lastSpawnedCorridorId=%d, active=%s\n",
+               g_PreparedTransitionDirection,
+               g_CurrentCorridorState.id,
+               g_PreparedNextCorridorId,
+               canonical_corridor.origin.x, canonical_corridor.origin.y, canonical_corridor.origin.z,
+               canonical_corridor.forward.x, canonical_corridor.forward.y, canonical_corridor.forward.z,
+               g_CameraPosition.x, g_CameraPosition.y, g_CameraPosition.z,
+               g_LastSalarymanSpawnCorridorId,
+               g_SalarymanNPC.active ? "true" : "false");
+        g_InConnectorTransition = false;
+    }
+
     // (5-6) Bi-directional treadmill recentering: both physical sides enter a new logical corridor.
     p_world = p + (float)block_index * block_offset;
     while (block_index > 0)
     {
         ActivateNewLogicalCorridor(+1);
         p_world -= block_offset;
+        const glm::vec3 player_position(p_world.x, g_CameraPosition.y, p_world.y);
+        const CanonicalCorridorDefinition canonical_corridor = MakeCurrentCanonicalCorridorDefinition(g_CurrentCorridorState.id);
+        TrySpawnSalarymanForCanonicalCorridor(canonical_corridor, player_position, 0, +1, "activation");
+        printf("Corridor activate: traversalDirection=1, currentCorridorId=%d, preparedCorridorId=%d, canonicalOrigin=(%.2f, %.2f, %.2f), canonicalForward=(%.2f, %.2f, %.2f), playerPosition=(%.2f, %.2f, %.2f), lastSpawnedCorridorId=%d, active=%s\n",
+               g_CurrentCorridorState.id,
+               g_PreparedNextCorridorId,
+               canonical_corridor.origin.x, canonical_corridor.origin.y, canonical_corridor.origin.z,
+               canonical_corridor.forward.x, canonical_corridor.forward.y, canonical_corridor.forward.z,
+               player_position.x, player_position.y, player_position.z,
+               g_LastSalarymanSpawnCorridorId,
+               g_SalarymanNPC.active ? "true" : "false");
+        g_PreparedNextCorridorId = -1;
+        g_PreparedTransitionDirection = 0;
+        g_InConnectorTransition = false;
         --block_index;
     }
     while (block_index < 0)
     {
         ActivateNewLogicalCorridor(-1);
         p_world += block_offset;
+        const glm::vec3 player_position(p_world.x, g_CameraPosition.y, p_world.y);
+        const CanonicalCorridorDefinition canonical_corridor = MakeCurrentCanonicalCorridorDefinition(g_CurrentCorridorState.id);
+        TrySpawnSalarymanForCanonicalCorridor(canonical_corridor, player_position, 0, -1, "activation");
+        printf("Corridor activate: traversalDirection=-1, currentCorridorId=%d, preparedCorridorId=%d, canonicalOrigin=(%.2f, %.2f, %.2f), canonicalForward=(%.2f, %.2f, %.2f), playerPosition=(%.2f, %.2f, %.2f), lastSpawnedCorridorId=%d, active=%s\n",
+               g_CurrentCorridorState.id,
+               g_PreparedNextCorridorId,
+               canonical_corridor.origin.x, canonical_corridor.origin.y, canonical_corridor.origin.z,
+               canonical_corridor.forward.x, canonical_corridor.forward.y, canonical_corridor.forward.z,
+               player_position.x, player_position.y, player_position.z,
+               g_LastSalarymanSpawnCorridorId,
+               g_SalarymanNPC.active ? "true" : "false");
+        g_PreparedNextCorridorId = -1;
+        g_PreparedTransitionDirection = 0;
+        g_InConnectorTransition = false;
         ++block_index;
     }
 
