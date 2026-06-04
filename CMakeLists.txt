@@ -59,6 +59,14 @@ add_executable(${EXECUTABLE_NAME} ${SOURCES})
 
 target_include_directories(${EXECUTABLE_NAME} BEFORE PRIVATE ${PROJECT_SOURCE_DIR}/include)
 
+set(LOCAL_MSYS2_UCRT_PREFIX "${PROJECT_SOURCE_DIR}/third_party/msys2-ucrt64/ucrt64")
+if(EXISTS "${LOCAL_MSYS2_UCRT_PREFIX}/lib/cmake/assimp-6.0/assimpConfig.cmake")
+  set(CMAKE_PREFIX_PATH "${LOCAL_MSYS2_UCRT_PREFIX};${CMAKE_PREFIX_PATH}")
+endif()
+find_package(assimp CONFIG REQUIRED)
+target_link_libraries(${EXECUTABLE_NAME} assimp::assimp)
+target_compile_definitions(${EXECUTABLE_NAME} PRIVATE SALARYMAN_HAS_ASSIMP=1)
+
 if(WIN32)
 
   if(MINGW)
@@ -100,6 +108,21 @@ if(WIN32)
   message(STATUS "LIBGLFW = ${LIBGLFW}")
 
   target_link_libraries(${EXECUTABLE_NAME} ${LIBGLFW} gdi32 opengl32)
+
+  if(EXISTS "${LOCAL_MSYS2_UCRT_PREFIX}/bin/libassimp-6.dll")
+    add_custom_command(TARGET ${EXECUTABLE_NAME} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${LOCAL_MSYS2_UCRT_PREFIX}/bin/libassimp-6.dll"
+              "$<TARGET_FILE_DIR:${EXECUTABLE_NAME}>")
+    add_custom_command(TARGET ${EXECUTABLE_NAME} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${LOCAL_MSYS2_UCRT_PREFIX}/bin/libminizip-1.dll"
+              "$<TARGET_FILE_DIR:${EXECUTABLE_NAME}>")
+    add_custom_command(TARGET ${EXECUTABLE_NAME} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${LOCAL_MSYS2_UCRT_PREFIX}/bin/zlib1.dll"
+              "$<TARGET_FILE_DIR:${EXECUTABLE_NAME}>")
+  endif()
 
 elseif(UNIX)
 

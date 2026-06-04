@@ -5,11 +5,17 @@
 layout (location = 0) in vec4 model_coefficients;
 layout (location = 1) in vec4 normal_coefficients;
 layout (location = 2) in vec2 texture_coefficients;
+layout (location = 3) in ivec4 bone_ids;
+layout (location = 4) in vec4 bone_weights;
+
+#define MAX_BONES 100
 
 // Matrizes computadas no código C++ e enviadas para a GPU
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
+uniform bool use_skinning;
+uniform mat4 bone_matrices[MAX_BONES];
 
 // Atributos de vértice que serão gerados como saída ("out") pelo Vertex Shader.
 // ** Estes serão interpolados pelo rasterizador! ** gerando, assim, valores
@@ -22,6 +28,26 @@ out vec2 texcoords;
 
 void main()
 {
+    vec4 local_position = model_coefficients;
+    vec4 local_normal = normal_coefficients;
+
+    if (use_skinning)
+    {
+        float total_weight = bone_weights.x + bone_weights.y + bone_weights.z + bone_weights.w;
+        if (total_weight > 0.0001)
+        {
+            mat4 skin =
+                bone_matrices[bone_ids.x] * bone_weights.x +
+                bone_matrices[bone_ids.y] * bone_weights.y +
+                bone_matrices[bone_ids.z] * bone_weights.z +
+                bone_matrices[bone_ids.w] * bone_weights.w;
+
+            local_position = skin * model_coefficients;
+            local_normal = skin * normal_coefficients;
+            local_normal.w = 0.0;
+        }
+    }
+
     // A variável gl_Position define a posição final de cada vértice
     // OBRIGATORIAMENTE em "normalized device coordinates" (NDC), onde cada
     // coeficiente estará entre -1 e 1 após divisão por w.
@@ -34,7 +60,7 @@ void main()
     // deste Vertex Shader, a placa de vídeo (GPU) fará a divisão por W. Veja
     // slides 41-67 e 69-86 do documento Aula_09_Projecoes.pdf.
 
-    gl_Position = projection * view * model * model_coefficients;
+    gl_Position = projection * view * model * local_position;
 
     // Como as variáveis acima  (tipo vec4) são vetores com 4 coeficientes,
     // também é possível acessar e modificar cada coeficiente de maneira
@@ -51,14 +77,14 @@ void main()
     // rasterizador para gerar atributos únicos para cada fragmento gerado.
 
     // Posição do vértice atual no sistema de coordenadas global (World).
-    position_world = model * model_coefficients;
+    position_world = model * local_position;
 
     // Posição do vértice atual no sistema de coordenadas local do modelo.
-    position_model = model_coefficients;
+    position_model = local_position;
 
     // Normal do vértice atual no sistema de coordenadas global (World).
     // Veja slides 123-151 do documento Aula_07_Transformacoes_Geometricas_3D.pdf.
-    normal = inverse(transpose(model)) * normal_coefficients;
+    normal = inverse(transpose(model)) * local_normal;
     normal.w = 0.0;
 
     // Coordenadas de textura obtidas do arquivo OBJ (se existirem!)

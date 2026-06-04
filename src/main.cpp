@@ -45,6 +45,11 @@
 #include <glm/vec4.hpp>
 #include <glm/geometric.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <glm/gtc/quaternion.hpp>
+
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
 
 // Headers da biblioteca para carregar modelos obj
 #include <tiny_obj_loader.h>
@@ -127,6 +132,8 @@ void PopMatrix(glm::mat4& M);
 struct Material;
 struct PointLight;
 struct StaticModel;
+struct SalarymanAnimatedModel;
+struct SalarymanAnimator;
 struct SalarymanNPC;
 struct CorridorContentFrame;
 struct CorridorContent;
@@ -145,9 +152,12 @@ void ApplyMaterial(const struct Material& material);
 void SetPointLights(const std::vector<struct PointLight>& lights);
 void CreateSolidColorTexture(unsigned char r, unsigned char g, unsigned char b);
 bool LoadSalarymanStaticModel(StaticModel& model, const char* filename);
+bool LoadSalarymanAnimatedModel(SalarymanAnimatedModel& model, const char* filename);
 void SpawnSalarymanForCorridor(SalarymanNPC& salaryman, const CorridorContent& content, const glm::vec3& player_position);
 void UpdateSalarymanNPC(SalarymanNPC& salaryman, float delta_time, const glm::vec4& camera_position_c);
+void UpdateSalarymanAnimation(SalarymanAnimator& animator, float delta_time);
 void DrawStaticModel(const StaticModel& model);
+void DrawAnimatedModel(const SalarymanAnimatedModel& model);
 void DrawSalarymanNPC(const SalarymanNPC& salaryman, const Material& material);
 GLuint LoadShader_Vertex(const char* filename);   // Carrega um vertex shader
 GLuint LoadShader_Fragment(const char* filename); // Carrega um fragment shader
@@ -227,6 +237,133 @@ struct StaticModel
     glm::vec3 bbox_max;
 };
 
+const int kMaxSalarymanBones = 100;
+
+struct BoneInfo
+{
+    int id;
+    glm::mat4 offsetMatrix;
+    glm::mat4 finalTransform;
+
+    BoneInfo()
+        : id(-1)
+        , offsetMatrix(Matrix_Identity())
+        , finalTransform(Matrix_Identity())
+    {
+    }
+};
+
+struct SalarymanAnimatedMesh
+{
+    GLuint vertex_array_object_id;
+    GLuint vertex_buffer_id;
+    GLuint index_buffer_id;
+    size_t num_indices;
+    glm::vec3 bbox_min;
+    glm::vec3 bbox_max;
+
+    SalarymanAnimatedMesh()
+        : vertex_array_object_id(0)
+        , vertex_buffer_id(0)
+        , index_buffer_id(0)
+        , num_indices(0)
+        , bbox_min(0.0f, 0.0f, 0.0f)
+        , bbox_max(0.0f, 0.0f, 0.0f)
+    {
+    }
+};
+
+struct SalarymanPositionKey
+{
+    float time;
+    glm::vec3 value;
+};
+
+struct SalarymanRotationKey
+{
+    float time;
+    glm::quat value;
+};
+
+struct SalarymanScaleKey
+{
+    float time;
+    glm::vec3 value;
+};
+
+struct SalarymanAnimationChannel
+{
+    std::string nodeName;
+    std::vector<SalarymanPositionKey> positions;
+    std::vector<SalarymanRotationKey> rotations;
+    std::vector<SalarymanScaleKey> scales;
+};
+
+struct SalarymanAnimation
+{
+    float duration;
+    float ticksPerSecond;
+    std::vector<SalarymanAnimationChannel> channels;
+    std::map<std::string, int> channelByNodeName;
+
+    SalarymanAnimation()
+        : duration(0.0f)
+        , ticksPerSecond(25.0f)
+    {
+    }
+};
+
+struct SalarymanAnimatedNode
+{
+    std::string name;
+    glm::mat4 transform;
+    std::vector<int> children;
+
+    SalarymanAnimatedNode()
+        : transform(Matrix_Identity())
+    {
+    }
+};
+
+struct SalarymanAnimatedModel
+{
+    bool loaded;
+    std::vector<SalarymanAnimatedMesh> meshes;
+    std::map<std::string, BoneInfo> boneInfoMap;
+    int boneCount;
+    int meshCount;
+    int animationCount;
+    glm::mat4 globalInverseTransform;
+    glm::mat4 normalizationMatrix;
+    SalarymanAnimation animation;
+    std::vector<SalarymanAnimatedNode> nodes;
+    int rootNodeIndex;
+    std::vector<glm::mat4> finalBoneMatrices;
+
+    SalarymanAnimatedModel()
+        : loaded(false)
+        , boneCount(0)
+        , meshCount(0)
+        , animationCount(0)
+        , globalInverseTransform(Matrix_Identity())
+        , normalizationMatrix(Matrix_Identity())
+        , rootNodeIndex(-1)
+    {
+    }
+};
+
+struct SalarymanAnimator
+{
+    SalarymanAnimatedModel* model;
+    float currentTime;
+
+    SalarymanAnimator()
+        : model(NULL)
+        , currentTime(0.0f)
+    {
+    }
+};
+
 struct SalarymanNPC
 {
     bool active;
@@ -238,6 +375,8 @@ struct SalarymanNPC
     glm::vec3 corridorOrigin;
     bool useAnimation;
     StaticModel* model;
+    SalarymanAnimatedModel* animatedModel;
+    SalarymanAnimator* animator;
 
     SalarymanNPC()
         : active(false)
@@ -249,6 +388,8 @@ struct SalarymanNPC
         , corridorOrigin(0.0f, 0.0f, 0.0f)
         , useAnimation(false)
         , model(NULL)
+        , animatedModel(NULL)
+        , animator(NULL)
     {
     }
 };
@@ -261,6 +402,8 @@ struct SalarymanNPC
 // estes são acessados.
 std::map<std::string, SceneObject> g_VirtualScene;
 StaticModel g_SalarymanStaticModel;
+SalarymanAnimatedModel g_SalarymanAnimatedModel;
+SalarymanAnimator g_SalarymanAnimator;
 SalarymanNPC g_SalarymanNPC;
 
 // Pilha que guardará as matrizes de modelagem.
@@ -435,6 +578,8 @@ GLuint g_GpuProgramID = 0;
 GLint g_model_uniform;
 GLint g_view_uniform;
 GLint g_projection_uniform;
+GLint g_use_skinning_uniform;
+GLint g_bone_matrices_uniform;
 GLint g_bbox_min_uniform;
 GLint g_bbox_max_uniform;
 GLint g_camera_position_uniform;
@@ -898,6 +1043,23 @@ int main(int argc, char* argv[])
     if (!LoadSalarymanStaticModel(g_SalarymanStaticModel, "assets/salarymanwalking.fbx"))
         std::exit(EXIT_FAILURE);
     g_SalarymanNPC.model = &g_SalarymanStaticModel;
+    g_SalarymanNPC.animatedModel = NULL;
+    g_SalarymanNPC.animator = NULL;
+    if (LoadSalarymanAnimatedModel(g_SalarymanAnimatedModel, "assets/salarymanwalking.fbx"))
+    {
+        g_SalarymanAnimator.model = &g_SalarymanAnimatedModel;
+        g_SalarymanAnimator.currentTime = 0.0f;
+        UpdateSalarymanAnimation(g_SalarymanAnimator, 0.0f);
+        g_SalarymanNPC.animatedModel = &g_SalarymanAnimatedModel;
+        g_SalarymanNPC.animator = &g_SalarymanAnimator;
+        g_SalarymanNPC.useAnimation = true;
+        printf("Salaryman render mode: animated\n");
+    }
+    else
+    {
+        g_SalarymanNPC.useAnimation = false;
+        printf("Salaryman render mode: static fallback\n");
+    }
 
     InitializeCorridorLifecycle();
     {
@@ -1366,6 +1528,9 @@ void SetPointLights(const std::vector<PointLight>& lights)
 // dos objetos na função BuildTrianglesAndAddToVirtualScene().
 void DrawVirtualObject(const char* object_name)
 {
+    if (g_use_skinning_uniform >= 0)
+        glUniform1i(g_use_skinning_uniform, GL_FALSE);
+
     // "Ligamos" o VAO. Informamos que queremos utilizar os atributos de
     // vértices apontados pelo VAO criado pela função BuildTrianglesAndAddToVirtualScene(). Veja
     // comentários detalhados dentro da definição de BuildTrianglesAndAddToVirtualScene().
@@ -1831,6 +1996,288 @@ bool AppendFbxMeshAsStaticVertices(const FbxMeshData& mesh, std::vector<Salaryma
 
     return true;
 }
+
+struct SalarymanAnimatedVertex
+{
+    float px, py, pz, pw;
+    float nx, ny, nz, nw;
+    float u, v;
+    int bone_ids[4];
+    float bone_weights[4];
+
+    SalarymanAnimatedVertex()
+        : px(0.0f), py(0.0f), pz(0.0f), pw(1.0f)
+        , nx(0.0f), ny(1.0f), nz(0.0f), nw(0.0f)
+        , u(0.0f), v(0.0f)
+    {
+        for (int i = 0; i < 4; ++i)
+        {
+            bone_ids[i] = 0;
+            bone_weights[i] = 0.0f;
+        }
+    }
+};
+
+glm::mat4 ConvertAssimpMatrix(const aiMatrix4x4& m)
+{
+    return Matrix(
+        (float)m.a1, (float)m.a2, (float)m.a3, (float)m.a4,
+        (float)m.b1, (float)m.b2, (float)m.b3, (float)m.b4,
+        (float)m.c1, (float)m.c2, (float)m.c3, (float)m.c4,
+        (float)m.d1, (float)m.d2, (float)m.d3, (float)m.d4
+    );
+}
+
+glm::vec3 ConvertAssimpVector(const aiVector3D& v)
+{
+    return glm::vec3((float)v.x, (float)v.y, (float)v.z);
+}
+
+glm::quat ConvertAssimpQuaternion(const aiQuaternion& q)
+{
+    return glm::normalize(glm::quat((float)q.w, (float)q.x, (float)q.y, (float)q.z));
+}
+
+void AddBoneInfluence(SalarymanAnimatedVertex& vertex, int bone_id, float weight)
+{
+    if (weight <= 0.0f)
+        return;
+
+    for (int i = 0; i < 4; ++i)
+    {
+        if (vertex.bone_weights[i] <= 0.0f)
+        {
+            vertex.bone_ids[i] = bone_id;
+            vertex.bone_weights[i] = weight;
+            return;
+        }
+    }
+
+    int weakest_index = 0;
+    for (int i = 1; i < 4; ++i)
+    {
+        if (vertex.bone_weights[i] < vertex.bone_weights[weakest_index])
+            weakest_index = i;
+    }
+
+    if (weight > vertex.bone_weights[weakest_index])
+    {
+        vertex.bone_ids[weakest_index] = bone_id;
+        vertex.bone_weights[weakest_index] = weight;
+    }
+}
+
+void NormalizeBoneInfluences(SalarymanAnimatedVertex& vertex)
+{
+    float sum = 0.0f;
+    for (int i = 0; i < 4; ++i)
+        sum += vertex.bone_weights[i];
+
+    if (sum <= 0.0001f)
+        return;
+
+    for (int i = 0; i < 4; ++i)
+        vertex.bone_weights[i] /= sum;
+}
+
+glm::mat4 MakeQuaternionMatrix(glm::quat q)
+{
+    q = glm::normalize(q);
+    const float x = q.x;
+    const float y = q.y;
+    const float z = q.z;
+    const float w = q.w;
+    const float xx = x * x;
+    const float yy = y * y;
+    const float zz = z * z;
+    const float xy = x * y;
+    const float xz = x * z;
+    const float yz = y * z;
+    const float wx = w * x;
+    const float wy = w * y;
+    const float wz = w * z;
+
+    return Matrix(
+        1.0f - 2.0f * (yy + zz), 2.0f * (xy - wz),        2.0f * (xz + wy),        0.0f,
+        2.0f * (xy + wz),        1.0f - 2.0f * (xx + zz), 2.0f * (yz - wx),        0.0f,
+        2.0f * (xz - wy),        2.0f * (yz + wx),        1.0f - 2.0f * (xx + yy), 0.0f,
+        0.0f,                    0.0f,                    0.0f,                    1.0f
+    );
+}
+
+int CopyAssimpNodeHierarchy(const aiNode* source_node, SalarymanAnimatedModel& model)
+{
+    const int node_index = (int)model.nodes.size();
+    SalarymanAnimatedNode node;
+    node.name = source_node->mName.C_Str();
+    node.transform = ConvertAssimpMatrix(source_node->mTransformation);
+    model.nodes.push_back(node);
+
+    for (unsigned int i = 0; i < source_node->mNumChildren; ++i)
+    {
+        const int child_index = CopyAssimpNodeHierarchy(source_node->mChildren[i], model);
+        model.nodes[node_index].children.push_back(child_index);
+    }
+
+    return node_index;
+}
+
+template <typename KeyType>
+size_t FindAnimationKeyIndex(const std::vector<KeyType>& keys, float animation_time)
+{
+    if (keys.size() <= 1)
+        return 0;
+
+    for (size_t i = 0; i + 1 < keys.size(); ++i)
+    {
+        if (animation_time < keys[i + 1].time)
+            return i;
+    }
+
+    return keys.size() - 2;
+}
+
+float InterpolationFactor(float animation_time, float current_time, float next_time)
+{
+    const float delta = next_time - current_time;
+    if (std::fabs(delta) <= 0.0001f)
+        return 0.0f;
+    return std::max(0.0f, std::min(1.0f, (animation_time - current_time) / delta));
+}
+
+glm::vec3 InterpolatePosition(const SalarymanAnimationChannel& channel, float animation_time)
+{
+    if (channel.positions.empty())
+        return glm::vec3(0.0f, 0.0f, 0.0f);
+    if (channel.positions.size() == 1)
+        return channel.positions[0].value;
+
+    const size_t index = FindAnimationKeyIndex(channel.positions, animation_time);
+    const SalarymanPositionKey& current = channel.positions[index];
+    const SalarymanPositionKey& next = channel.positions[index + 1];
+    const float factor = InterpolationFactor(animation_time, current.time, next.time);
+    return current.value + (next.value - current.value) * factor;
+}
+
+glm::quat InterpolateRotation(const SalarymanAnimationChannel& channel, float animation_time)
+{
+    if (channel.rotations.empty())
+        return glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+    if (channel.rotations.size() == 1)
+        return glm::normalize(channel.rotations[0].value);
+
+    const size_t index = FindAnimationKeyIndex(channel.rotations, animation_time);
+    const SalarymanRotationKey& current = channel.rotations[index];
+    const SalarymanRotationKey& next = channel.rotations[index + 1];
+    const float factor = InterpolationFactor(animation_time, current.time, next.time);
+    glm::quat next_value = next.value;
+    if (glm::dot(current.value, next_value) < 0.0f)
+        next_value = -next_value;
+    return glm::normalize(glm::slerp(current.value, next_value, factor));
+}
+
+glm::vec3 InterpolateScale(const SalarymanAnimationChannel& channel, float animation_time)
+{
+    if (channel.scales.empty())
+        return glm::vec3(1.0f, 1.0f, 1.0f);
+    if (channel.scales.size() == 1)
+        return channel.scales[0].value;
+
+    const size_t index = FindAnimationKeyIndex(channel.scales, animation_time);
+    const SalarymanScaleKey& current = channel.scales[index];
+    const SalarymanScaleKey& next = channel.scales[index + 1];
+    const float factor = InterpolationFactor(animation_time, current.time, next.time);
+    return current.value + (next.value - current.value) * factor;
+}
+
+const SalarymanAnimationChannel* FindAnimationChannel(const SalarymanAnimation& animation, const std::string& node_name)
+{
+    std::map<std::string, int>::const_iterator it = animation.channelByNodeName.find(node_name);
+    if (it == animation.channelByNodeName.end())
+        return NULL;
+
+    const int index = it->second;
+    if (index < 0 || (size_t)index >= animation.channels.size())
+        return NULL;
+
+    return &animation.channels[(size_t)index];
+}
+
+glm::mat4 InterpolateNodeTransform(const SalarymanAnimationChannel& channel, float animation_time)
+{
+    const glm::vec3 position = InterpolatePosition(channel, animation_time);
+    const glm::quat rotation = InterpolateRotation(channel, animation_time);
+    const glm::vec3 scale = InterpolateScale(channel, animation_time);
+
+    return Matrix_Translate(position.x, position.y, position.z)
+         * MakeQuaternionMatrix(rotation)
+         * Matrix_Scale(scale.x, scale.y, scale.z);
+}
+
+bool IsSalarymanRootMotionChannel(const std::string& node_name)
+{
+    return node_name == "Hips"
+        || node_name == "mixamorig7:Hips"
+        || node_name.find(":Hips") != std::string::npos;
+}
+
+void StripSalarymanHorizontalRootMotion(SalarymanAnimationChannel& channel)
+{
+    if (!IsSalarymanRootMotionChannel(channel.nodeName) || channel.positions.size() <= 1)
+        return;
+
+    const glm::vec3 first_position = channel.positions.front().value;
+    const glm::vec3 last_position = channel.positions.back().value;
+    const float delta_x = last_position.x - first_position.x;
+    const float delta_z = last_position.z - first_position.z;
+
+    if (std::fabs(delta_x) <= 0.0001f && std::fabs(delta_z) <= 0.0001f)
+        return;
+
+    for (size_t i = 0; i < channel.positions.size(); ++i)
+    {
+        channel.positions[i].value.x = first_position.x;
+        channel.positions[i].value.z = first_position.z;
+    }
+
+    printf("Salaryman animation: stripped horizontal root motion from channel=%s originalDeltaXZ=(%.6f, %.6f)\n",
+           channel.nodeName.c_str(), delta_x, delta_z);
+}
+
+void CalculateSalarymanBoneTransforms(SalarymanAnimatedModel& model, int node_index, const glm::mat4& parent_transform, float animation_time)
+{
+    if (node_index < 0 || (size_t)node_index >= model.nodes.size())
+        return;
+
+    const SalarymanAnimatedNode& node = model.nodes[(size_t)node_index];
+    glm::mat4 node_transform = node.transform;
+    const SalarymanAnimationChannel* channel = FindAnimationChannel(model.animation, node.name);
+    if (channel != NULL)
+        node_transform = InterpolateNodeTransform(*channel, animation_time);
+
+    const glm::mat4 global_transform = parent_transform * node_transform;
+    std::map<std::string, BoneInfo>::const_iterator bone_it = model.boneInfoMap.find(node.name);
+    if (bone_it != model.boneInfoMap.end())
+    {
+        const int bone_id = bone_it->second.id;
+        if (bone_id >= 0 && bone_id < kMaxSalarymanBones && (size_t)bone_id < model.finalBoneMatrices.size())
+            model.finalBoneMatrices[(size_t)bone_id] = model.globalInverseTransform * global_transform * bone_it->second.offsetMatrix;
+    }
+
+    for (size_t i = 0; i < node.children.size(); ++i)
+        CalculateSalarymanBoneTransforms(model, node.children[i], global_transform, animation_time);
+}
+
+void CalculateSalarymanBoneTransformsAtTime(SalarymanAnimatedModel& model, float animation_time)
+{
+    if (model.rootNodeIndex < 0)
+        return;
+
+    for (size_t i = 0; i < model.finalBoneMatrices.size(); ++i)
+        model.finalBoneMatrices[i] = Matrix_Identity();
+
+    CalculateSalarymanBoneTransforms(model, model.rootNodeIndex, Matrix_Identity(), animation_time);
+}
 }
 
 bool LoadSalarymanStaticModel(StaticModel& model, const char* filename)
@@ -1970,6 +2417,301 @@ bool LoadSalarymanStaticModel(StaticModel& model, const char* filename)
     return true;
 }
 
+bool LoadSalarymanAnimatedModel(SalarymanAnimatedModel& model, const char* filename)
+{
+    model = SalarymanAnimatedModel();
+    const std::string path = ResolveExistingPath(filename);
+    printf("Loading animated salaryman FBX \"%s\"...\n", path.c_str());
+
+    Assimp::Importer importer;
+    const unsigned int flags =
+        aiProcess_Triangulate |
+        aiProcess_GenSmoothNormals |
+        aiProcess_LimitBoneWeights |
+        aiProcess_ImproveCacheLocality |
+        aiProcess_ValidateDataStructure;
+
+    const aiScene* scene = importer.ReadFile(path, flags);
+    if (scene == NULL || scene->mRootNode == NULL)
+    {
+        fprintf(stderr, "ERROR: Assimp failed to load animated salaryman: %s\n", importer.GetErrorString());
+        return false;
+    }
+
+    model.meshCount = (int)scene->mNumMeshes;
+    model.animationCount = (int)scene->mNumAnimations;
+    if (scene->mNumMeshes == 0 || scene->mNumAnimations == 0)
+    {
+        fprintf(stderr,
+                "ERROR: Animated salaryman requires mesh and animation data. mesh count=%u animation count=%u\n",
+                scene->mNumMeshes, scene->mNumAnimations);
+        return false;
+    }
+
+    aiMatrix4x4 root_inverse = scene->mRootNode->mTransformation;
+    root_inverse.Inverse();
+    model.globalInverseTransform = ConvertAssimpMatrix(root_inverse);
+    model.rootNodeIndex = CopyAssimpNodeHierarchy(scene->mRootNode, model);
+
+    glm::vec3 raw_min(std::numeric_limits<float>::max());
+    glm::vec3 raw_max(std::numeric_limits<float>::lowest());
+    bool found_vertex = false;
+
+    for (unsigned int mesh_index = 0; mesh_index < scene->mNumMeshes; ++mesh_index)
+    {
+        const aiMesh* mesh = scene->mMeshes[mesh_index];
+        if (mesh == NULL || mesh->mNumVertices == 0)
+            continue;
+
+        std::vector<SalarymanAnimatedVertex> vertices(mesh->mNumVertices);
+        for (unsigned int vertex_index = 0; vertex_index < mesh->mNumVertices; ++vertex_index)
+        {
+            SalarymanAnimatedVertex& vertex = vertices[vertex_index];
+            const aiVector3D& p = mesh->mVertices[vertex_index];
+            vertex.px = (float)p.x;
+            vertex.py = (float)p.y;
+            vertex.pz = (float)p.z;
+            vertex.pw = 1.0f;
+
+            if (mesh->HasNormals())
+            {
+                const aiVector3D& n = mesh->mNormals[vertex_index];
+                glm::vec3 normal((float)n.x, (float)n.y, (float)n.z);
+                if (glm::length(normal) > 0.0001f)
+                    normal = glm::normalize(normal);
+                vertex.nx = normal.x;
+                vertex.ny = normal.y;
+                vertex.nz = normal.z;
+                vertex.nw = 0.0f;
+            }
+
+            if (mesh->HasTextureCoords(0))
+            {
+                const aiVector3D& uv = mesh->mTextureCoords[0][vertex_index];
+                vertex.u = (float)uv.x;
+                vertex.v = (float)uv.y;
+            }
+
+            glm::vec3 point(vertex.px, vertex.py, vertex.pz);
+            raw_min.x = std::min(raw_min.x, point.x); raw_min.y = std::min(raw_min.y, point.y); raw_min.z = std::min(raw_min.z, point.z);
+            raw_max.x = std::max(raw_max.x, point.x); raw_max.y = std::max(raw_max.y, point.y); raw_max.z = std::max(raw_max.z, point.z);
+            found_vertex = true;
+        }
+
+        for (unsigned int bone_index = 0; bone_index < mesh->mNumBones; ++bone_index)
+        {
+            const aiBone* bone = mesh->mBones[bone_index];
+            if (bone == NULL)
+                continue;
+
+            const std::string bone_name = bone->mName.C_Str();
+            std::map<std::string, BoneInfo>::iterator bone_it = model.boneInfoMap.find(bone_name);
+            if (bone_it == model.boneInfoMap.end())
+            {
+                if (model.boneCount >= kMaxSalarymanBones)
+                {
+                    fprintf(stderr,
+                            "ERROR: Animated salaryman has more bones than supported (%d).\n",
+                            kMaxSalarymanBones);
+                    return false;
+                }
+
+                BoneInfo bone_info;
+                bone_info.id = model.boneCount;
+                bone_info.offsetMatrix = ConvertAssimpMatrix(bone->mOffsetMatrix);
+                bone_info.finalTransform = Matrix_Identity();
+                bone_it = model.boneInfoMap.insert(std::make_pair(bone_name, bone_info)).first;
+                model.boneCount += 1;
+            }
+
+            const int bone_id = bone_it->second.id;
+            for (unsigned int weight_index = 0; weight_index < bone->mNumWeights; ++weight_index)
+            {
+                const aiVertexWeight& weight = bone->mWeights[weight_index];
+                if (weight.mVertexId < mesh->mNumVertices)
+                    AddBoneInfluence(vertices[weight.mVertexId], bone_id, weight.mWeight);
+            }
+        }
+
+        for (size_t vertex_index = 0; vertex_index < vertices.size(); ++vertex_index)
+            NormalizeBoneInfluences(vertices[vertex_index]);
+
+        std::vector<GLuint> indices;
+        for (unsigned int face_index = 0; face_index < mesh->mNumFaces; ++face_index)
+        {
+            const aiFace& face = mesh->mFaces[face_index];
+            if (face.mNumIndices != 3)
+                continue;
+            indices.push_back((GLuint)face.mIndices[0]);
+            indices.push_back((GLuint)face.mIndices[1]);
+            indices.push_back((GLuint)face.mIndices[2]);
+        }
+
+        if (indices.empty())
+            continue;
+
+        SalarymanAnimatedMesh animated_mesh;
+        animated_mesh.num_indices = indices.size();
+        animated_mesh.bbox_min = raw_min;
+        animated_mesh.bbox_max = raw_max;
+
+        glGenVertexArrays(1, &animated_mesh.vertex_array_object_id);
+        glBindVertexArray(animated_mesh.vertex_array_object_id);
+
+        glGenBuffers(1, &animated_mesh.vertex_buffer_id);
+        glBindBuffer(GL_ARRAY_BUFFER, animated_mesh.vertex_buffer_id);
+        glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(SalarymanAnimatedVertex), vertices.data(), GL_STATIC_DRAW);
+
+        glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(SalarymanAnimatedVertex), (void*)offsetof(SalarymanAnimatedVertex, px));
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(SalarymanAnimatedVertex), (void*)offsetof(SalarymanAnimatedVertex, nx));
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(SalarymanAnimatedVertex), (void*)offsetof(SalarymanAnimatedVertex, u));
+        glEnableVertexAttribArray(2);
+        glVertexAttribIPointer(3, 4, GL_INT, sizeof(SalarymanAnimatedVertex), (void*)offsetof(SalarymanAnimatedVertex, bone_ids));
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(SalarymanAnimatedVertex), (void*)offsetof(SalarymanAnimatedVertex, bone_weights));
+        glEnableVertexAttribArray(4);
+
+        glGenBuffers(1, &animated_mesh.index_buffer_id);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, animated_mesh.index_buffer_id);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(GLuint), indices.data(), GL_STATIC_DRAW);
+        glBindVertexArray(0);
+
+        model.meshes.push_back(animated_mesh);
+    }
+
+    if (!found_vertex || model.meshes.empty() || model.boneCount == 0)
+    {
+        fprintf(stderr,
+                "ERROR: Animated salaryman missing usable mesh or bone data. mesh count=%u bone count=%d animation count=%u\n",
+                scene->mNumMeshes, model.boneCount, scene->mNumAnimations);
+        return false;
+    }
+
+    const aiAnimation* animation = scene->mAnimations[0];
+    model.animation.duration = (float)animation->mDuration;
+    model.animation.ticksPerSecond = (animation->mTicksPerSecond > 0.0) ? (float)animation->mTicksPerSecond : 25.0f;
+    if (model.animation.duration <= 0.0f)
+    {
+        fprintf(stderr, "ERROR: Animated salaryman animation has invalid duration.\n");
+        return false;
+    }
+
+    for (unsigned int channel_index = 0; channel_index < animation->mNumChannels; ++channel_index)
+    {
+        const aiNodeAnim* ai_channel = animation->mChannels[channel_index];
+        if (ai_channel == NULL)
+            continue;
+
+        SalarymanAnimationChannel channel;
+        channel.nodeName = ai_channel->mNodeName.C_Str();
+
+        for (unsigned int i = 0; i < ai_channel->mNumPositionKeys; ++i)
+        {
+            SalarymanPositionKey key;
+            key.time = (float)ai_channel->mPositionKeys[i].mTime;
+            key.value = ConvertAssimpVector(ai_channel->mPositionKeys[i].mValue);
+            channel.positions.push_back(key);
+        }
+
+        for (unsigned int i = 0; i < ai_channel->mNumRotationKeys; ++i)
+        {
+            SalarymanRotationKey key;
+            key.time = (float)ai_channel->mRotationKeys[i].mTime;
+            key.value = ConvertAssimpQuaternion(ai_channel->mRotationKeys[i].mValue);
+            channel.rotations.push_back(key);
+        }
+
+        for (unsigned int i = 0; i < ai_channel->mNumScalingKeys; ++i)
+        {
+            SalarymanScaleKey key;
+            key.time = (float)ai_channel->mScalingKeys[i].mTime;
+            key.value = ConvertAssimpVector(ai_channel->mScalingKeys[i].mValue);
+            channel.scales.push_back(key);
+        }
+
+        StripSalarymanHorizontalRootMotion(channel);
+
+        const int stored_index = (int)model.animation.channels.size();
+        model.animation.channelByNodeName[channel.nodeName] = stored_index;
+        model.animation.channels.push_back(channel);
+    }
+
+    if (model.animation.channels.empty())
+    {
+        fprintf(stderr, "ERROR: Animated salaryman has no animation channels.\n");
+        return false;
+    }
+
+    const float raw_height = std::max(1.0f, raw_max.y - raw_min.y);
+    const float model_scale = 1.75f / raw_height;
+    const glm::vec3 origin((raw_min.x + raw_max.x) * 0.5f, raw_min.y, (raw_min.z + raw_max.z) * 0.5f);
+    model.normalizationMatrix =
+        Matrix_Scale(model_scale, model_scale, model_scale) *
+        Matrix_Translate(-origin.x, -origin.y, -origin.z);
+
+    model.finalBoneMatrices.assign(kMaxSalarymanBones, Matrix_Identity());
+    CalculateSalarymanBoneTransformsAtTime(model, 0.0f);
+    model.loaded = true;
+
+    printf("Salaryman animated FBX: mesh count=%d\n", model.meshCount);
+    printf("Salaryman animated FBX: bone count=%d\n", model.boneCount);
+    printf("Salaryman animated FBX: animation count=%d\n", model.animationCount);
+    printf("Salaryman animated FBX: animation duration=%.3f\n", model.animation.duration);
+    printf("Salaryman animated FBX: ticks per second=%.3f\n", model.animation.ticksPerSecond);
+    return true;
+}
+
+void UpdateSalarymanAnimation(SalarymanAnimator& animator, float delta_time)
+{
+    if (animator.model == NULL || !animator.model->loaded)
+        return;
+
+    SalarymanAnimatedModel& model = *animator.model;
+    if (model.animation.duration <= 0.0f)
+        return;
+
+    const float ticks_per_second = (model.animation.ticksPerSecond > 0.0f)
+                                 ? model.animation.ticksPerSecond
+                                 : 25.0f;
+    animator.currentTime += ticks_per_second * delta_time;
+    animator.currentTime = std::fmod(animator.currentTime, model.animation.duration);
+    if (animator.currentTime < 0.0f)
+        animator.currentTime += model.animation.duration;
+
+    CalculateSalarymanBoneTransformsAtTime(model, animator.currentTime);
+}
+
+void DrawAnimatedModel(const SalarymanAnimatedModel& model)
+{
+    if (!model.loaded || model.meshes.empty())
+        return;
+
+    if (g_use_skinning_uniform >= 0)
+        glUniform1i(g_use_skinning_uniform, GL_TRUE);
+
+    if (g_bone_matrices_uniform >= 0 && !model.finalBoneMatrices.empty())
+    {
+        const GLsizei count = (GLsizei)std::min(model.finalBoneMatrices.size(), (size_t)kMaxSalarymanBones);
+        glUniformMatrix4fv(g_bone_matrices_uniform, count, GL_FALSE, glm::value_ptr(model.finalBoneMatrices[0]));
+    }
+
+    for (size_t i = 0; i < model.meshes.size(); ++i)
+    {
+        const SalarymanAnimatedMesh& mesh = model.meshes[i];
+        glBindVertexArray(mesh.vertex_array_object_id);
+        glUniform4f(g_bbox_min_uniform, mesh.bbox_min.x, mesh.bbox_min.y, mesh.bbox_min.z, 1.0f);
+        glUniform4f(g_bbox_max_uniform, mesh.bbox_max.x, mesh.bbox_max.y, mesh.bbox_max.z, 1.0f);
+        glDrawElements(GL_TRIANGLES, (GLsizei)mesh.num_indices, GL_UNSIGNED_INT, 0);
+    }
+
+    glBindVertexArray(0);
+
+    if (g_use_skinning_uniform >= 0)
+        glUniform1i(g_use_skinning_uniform, GL_FALSE);
+}
+
 void SpawnSalarymanForCorridor(SalarymanNPC& salaryman, const CorridorContent& content, const glm::vec3& player_position)
 {
     const CorridorContentFrame& frame = content.frame;
@@ -1989,7 +2731,14 @@ void SpawnSalarymanForCorridor(SalarymanNPC& salaryman, const CorridorContent& c
     salaryman.speed = 1.35f;
     salaryman.corridorLength = frame.corridorLength;
     salaryman.corridorOrigin = frame.contentOrigin - path_forward * frame.corridorLength;
-    salaryman.useAnimation = false;
+    salaryman.useAnimation = (salaryman.animatedModel != NULL &&
+                              salaryman.animatedModel->loaded &&
+                              salaryman.animator != NULL);
+    if (salaryman.useAnimation)
+    {
+        salaryman.animator->currentTime = 0.0f;
+        UpdateSalarymanAnimation(*salaryman.animator, 0.0f);
+    }
 
     (void)player_position;
 }
@@ -1999,10 +2748,8 @@ void UpdateSalarymanNPC(SalarymanNPC& salaryman, float delta_time, const glm::ve
     if (!salaryman.active)
         return;
 
-    if (salaryman.useAnimation)
-    {
-        // Future animation update code
-    }
+    if (salaryman.useAnimation && salaryman.animator != NULL)
+        UpdateSalarymanAnimation(*salaryman.animator, delta_time);
 
     salaryman.position += salaryman.forward * salaryman.speed * delta_time;
 
@@ -2047,7 +2794,7 @@ void DrawStaticModel(const StaticModel& model)
 
 void DrawSalarymanNPC(const SalarymanNPC& salaryman, const Material& material)
 {
-    if (!salaryman.active || salaryman.model == NULL)
+    if (!salaryman.active)
         return;
 
     glm::vec3 forward = salaryman.forward;
@@ -2072,15 +2819,17 @@ void DrawSalarymanNPC(const SalarymanNPC& salaryman, const Material& material)
         0.0f,    0.0f,           0.0f,      1.0f
     );
 
-    glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model_matrix));
     ApplyMaterial(material);
 
-    if (salaryman.useAnimation)
+    if (salaryman.useAnimation && salaryman.animatedModel != NULL && salaryman.animatedModel->loaded)
     {
-        // Future DrawAnimatedModel(...) call.
+        const glm::mat4 animated_model_matrix = model_matrix * salaryman.animatedModel->normalizationMatrix;
+        glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(animated_model_matrix));
+        DrawAnimatedModel(*salaryman.animatedModel);
     }
-    else
+    else if (salaryman.model != NULL)
     {
+        glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model_matrix));
         DrawStaticModel(*salaryman.model);
     }
 }
@@ -2228,6 +2977,8 @@ void LoadShadersFromFiles()
     g_model_uniform      = glGetUniformLocation(g_GpuProgramID, "model"); // Variável da matriz "model"
     g_view_uniform       = glGetUniformLocation(g_GpuProgramID, "view"); // Variável da matriz "view" em shader_vertex.glsl
     g_projection_uniform = glGetUniformLocation(g_GpuProgramID, "projection"); // Variável da matriz "projection" em shader_vertex.glsl
+    g_use_skinning_uniform = glGetUniformLocation(g_GpuProgramID, "use_skinning");
+    g_bone_matrices_uniform = glGetUniformLocation(g_GpuProgramID, "bone_matrices[0]");
     g_bbox_min_uniform   = glGetUniformLocation(g_GpuProgramID, "bbox_min");
     g_bbox_max_uniform   = glGetUniformLocation(g_GpuProgramID, "bbox_max");
     g_camera_position_uniform = glGetUniformLocation(g_GpuProgramID, "camera_position");

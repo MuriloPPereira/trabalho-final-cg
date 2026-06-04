@@ -1,2 +1,18 @@
 bin
 build
+build-*/
+
+# CMake/build outputs
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+*.o
+*.obj
+*.obj.d
+*.dll
+*.exe
+*.pdb
+
+# Generated Assimp XML export. The game loads the FBX asset, not this file.
+assets/*.assxml
