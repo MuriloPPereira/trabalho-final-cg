@@ -255,17 +255,27 @@ struct BoneInfo
 
 struct SalarymanAnimatedMesh
 {
+    std::string name;
+    std::string materialName;
     GLuint vertex_array_object_id;
     GLuint vertex_buffer_id;
     GLuint index_buffer_id;
+    GLuint diffuse_texture_id;
+    GLuint diffuse_texture_unit;
+    unsigned int material_index;
     size_t num_indices;
     glm::vec3 bbox_min;
     glm::vec3 bbox_max;
 
     SalarymanAnimatedMesh()
-        : vertex_array_object_id(0)
+        : name()
+        , materialName()
+        , vertex_array_object_id(0)
         , vertex_buffer_id(0)
         , index_buffer_id(0)
+        , diffuse_texture_id(0)
+        , diffuse_texture_unit(0)
+        , material_index(0)
         , num_indices(0)
         , bbox_min(0.0f, 0.0f, 0.0f)
         , bbox_max(0.0f, 0.0f, 0.0f)
@@ -1829,6 +1839,51 @@ bool ReadWholeFile(const std::string& path, std::vector<unsigned char>& bytes)
     return file.good();
 }
 
+bool LoadSalarymanDiffuseTexture(const char* filename, GLuint& texture_id, GLuint& texture_unit)
+{
+    const std::string fullpath = ResolveExistingPath(filename);
+    printf("Loading salaryman diffuse texture \"%s\"... ", fullpath.c_str());
+
+    stbi_set_flip_vertically_on_load(true);
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+    unsigned char* data = stbi_load(fullpath.c_str(), &width, &height, &channels, 3);
+    if (data == NULL)
+    {
+        fprintf(stderr, "FAILED.\nERROR: Cannot open salaryman diffuse texture \"%s\".\n", fullpath.c_str());
+        texture_id = 0;
+        texture_unit = 0;
+        return false;
+    }
+
+    texture_id = 0;
+    GLuint sampler_id = 0;
+    glGenTextures(1, &texture_id);
+    glGenSamplers(1, &sampler_id);
+
+    glSamplerParameteri(sampler_id, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glSamplerParameteri(sampler_id, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glSamplerParameteri(sampler_id, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glSamplerParameteri(sampler_id, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    texture_unit = g_NumLoadedTextures;
+    glActiveTexture(GL_TEXTURE0 + texture_unit);
+    glBindTexture(GL_TEXTURE_2D, texture_id);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glBindSampler(texture_unit, sampler_id);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    stbi_image_free(data);
+    g_NumLoadedTextures += 1;
+
+    printf("OK (%dx%d, textureId=%u, unit=%u).\n", width, height, texture_id, texture_unit);
+    return true;
+}
+
 bool ParseFbxLayerElementNormal(const std::vector<unsigned char>& bytes, uint32_t version, size_t start, uint64_t end, FbxMeshData& mesh)
 {
     size_t offset = start;
@@ -2448,6 +2503,22 @@ bool LoadSalarymanAnimatedModel(SalarymanAnimatedModel& model, const char* filen
         return false;
     }
 
+    GLuint body_diffuse_texture_id = 0;
+    GLuint body_diffuse_texture_unit = 0;
+    GLuint hair_diffuse_texture_id = 0;
+    GLuint hair_diffuse_texture_unit = 0;
+    if (!LoadSalarymanDiffuseTexture("assets/salaryman/Ch33_1001_Diffuse.png", body_diffuse_texture_id, body_diffuse_texture_unit))
+        return false;
+    if (!LoadSalarymanDiffuseTexture("assets/salaryman/Ch33_1002_Diffuse.png", hair_diffuse_texture_id, hair_diffuse_texture_unit))
+    {
+        hair_diffuse_texture_id = body_diffuse_texture_id;
+        hair_diffuse_texture_unit = body_diffuse_texture_unit;
+        printf("Salaryman animated FBX: hair diffuse texture unavailable, using body diffuse fallback.\n");
+    }
+    printf("Salaryman animated FBX: body diffuse textureId=%u unit=%u, hair diffuse textureId=%u unit=%u\n",
+           body_diffuse_texture_id, body_diffuse_texture_unit,
+           hair_diffuse_texture_id, hair_diffuse_texture_unit);
+
     aiMatrix4x4 root_inverse = scene->mRootNode->mTransformation;
     root_inverse.Inverse();
     model.globalInverseTransform = ConvertAssimpMatrix(root_inverse);
@@ -2551,6 +2622,23 @@ bool LoadSalarymanAnimatedModel(SalarymanAnimatedModel& model, const char* filen
             continue;
 
         SalarymanAnimatedMesh animated_mesh;
+        animated_mesh.name = mesh->mName.C_Str();
+        animated_mesh.material_index = mesh->mMaterialIndex;
+        if (mesh->mMaterialIndex < scene->mNumMaterials && scene->mMaterials[mesh->mMaterialIndex] != NULL)
+        {
+            aiString material_name;
+            if (AI_SUCCESS == scene->mMaterials[mesh->mMaterialIndex]->Get(AI_MATKEY_NAME, material_name))
+                animated_mesh.materialName = material_name.C_Str();
+        }
+
+        const bool use_hair_texture =
+            animated_mesh.name.find("Hair") != std::string::npos ||
+            animated_mesh.name.find("hair") != std::string::npos ||
+            animated_mesh.materialName.find("Hair") != std::string::npos ||
+            animated_mesh.materialName.find("hair") != std::string::npos;
+        animated_mesh.diffuse_texture_id = use_hair_texture ? hair_diffuse_texture_id : body_diffuse_texture_id;
+        animated_mesh.diffuse_texture_unit = use_hair_texture ? hair_diffuse_texture_unit : body_diffuse_texture_unit;
+
         animated_mesh.num_indices = indices.size();
         animated_mesh.bbox_min = raw_min;
         animated_mesh.bbox_max = raw_max;
@@ -2577,6 +2665,13 @@ bool LoadSalarymanAnimatedModel(SalarymanAnimatedModel& model, const char* filen
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, animated_mesh.index_buffer_id);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(GLuint), indices.data(), GL_STATIC_DRAW);
         glBindVertexArray(0);
+
+        printf("Salaryman animated mesh texture: mesh=%s material=%s assigned=%s textureId=%u unit=%u\n",
+               animated_mesh.name.empty() ? "<unnamed>" : animated_mesh.name.c_str(),
+               animated_mesh.materialName.empty() ? "<unnamed>" : animated_mesh.materialName.c_str(),
+               use_hair_texture ? "Ch33_1002_Diffuse.png" : "Ch33_1001_Diffuse.png",
+               animated_mesh.diffuse_texture_id,
+               animated_mesh.diffuse_texture_unit);
 
         model.meshes.push_back(animated_mesh);
     }
@@ -2701,6 +2796,12 @@ void DrawAnimatedModel(const SalarymanAnimatedModel& model)
     {
         const SalarymanAnimatedMesh& mesh = model.meshes[i];
         glBindVertexArray(mesh.vertex_array_object_id);
+        if (mesh.diffuse_texture_id != 0)
+        {
+            glActiveTexture(GL_TEXTURE0 + mesh.diffuse_texture_unit);
+            glBindTexture(GL_TEXTURE_2D, mesh.diffuse_texture_id);
+        }
+        glUniform1i(g_material_diffuse_uniform, mesh.diffuse_texture_unit);
         glUniform4f(g_bbox_min_uniform, mesh.bbox_min.x, mesh.bbox_min.y, mesh.bbox_min.z, 1.0f);
         glUniform4f(g_bbox_max_uniform, mesh.bbox_max.x, mesh.bbox_max.y, mesh.bbox_max.z, 1.0f);
         glDrawElements(GL_TRIANGLES, (GLsizei)mesh.num_indices, GL_UNSIGNED_INT, 0);
