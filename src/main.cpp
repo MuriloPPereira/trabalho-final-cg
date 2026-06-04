@@ -57,6 +57,12 @@
 
 // Estrutura que representa um modelo geométrico carregado a partir de um
 // arquivo ".obj". Veja https://en.wikipedia.org/wiki/Wavefront_.obj_file .
+#ifndef ENABLE_CORRIDOR_DEBUG_LOGS
+#define ENABLE_CORRIDOR_DEBUG_LOGS 0
+#endif
+
+static const bool kCorridorDebugLogsEnabled = (ENABLE_CORRIDOR_DEBUG_LOGS != 0);
+
 struct ObjModel
 {
     tinyobj::attrib_t                 attrib;
@@ -122,7 +128,8 @@ struct Material;
 struct PointLight;
 struct StaticModel;
 struct SalarymanNPC;
-struct CanonicalCorridorDefinition;
+struct CorridorContentFrame;
+struct CorridorContent;
 
 // Declaração de várias funções utilizadas em main().  Essas estão definidas
 // logo após a definição de main() neste arquivo.
@@ -138,7 +145,7 @@ void ApplyMaterial(const struct Material& material);
 void SetPointLights(const std::vector<struct PointLight>& lights);
 void CreateSolidColorTexture(unsigned char r, unsigned char g, unsigned char b);
 bool LoadSalarymanStaticModel(StaticModel& model, const char* filename);
-void SpawnSalarymanForCorridor(SalarymanNPC& salaryman, const CanonicalCorridorDefinition& corridor, const glm::vec3& player_position);
+void SpawnSalarymanForCorridor(SalarymanNPC& salaryman, const CorridorContent& content, const glm::vec3& player_position);
 void UpdateSalarymanNPC(SalarymanNPC& salaryman, float delta_time, const glm::vec4& camera_position_c);
 void DrawStaticModel(const StaticModel& model);
 void DrawSalarymanNPC(const SalarymanNPC& salaryman, const Material& material);
@@ -282,9 +289,6 @@ bool g_FirstMouseInput = true;
 struct CorridorState
 {
     int id;
-    int entry_side;
-    int logical_forward_sign;
-    int poster_shift;
     bool has_anomaly;
 };
 
@@ -296,69 +300,119 @@ struct CanonicalCorridorLayout
     glm::vec2 block_offset;
     float turn_z0;
     float turn_z1;
-    float short1_center_z;
-    float short1_start_x;
-    float short1_end_x;
-    float turn1_right_x;
-    float short2_start_z;
-    float short2_end_z;
-    float turn2_left_x;
-    float turn2_left_z;
-    float turn2_right_x;
-    float turn2_right_z;
+    float connector_center_z;
+    float connector_start_x;
+    float connector_end_x;
+    float exit_turn_x;
 };
 
-struct CanonicalCorridorDefinition
+struct CorridorRenderTransform
+{
+    glm::mat4 geometryFromLocal;
+};
+
+struct CorridorContentFrame
+{
+    int logicalCorridorId;
+    glm::vec3 contentOrigin;
+    glm::vec3 contentForward;
+    glm::vec3 contentRight;
+    float corridorLength;
+    float connectorLength;
+    const char* posterWallSide;
+};
+
+struct PosterSlotLayout
+{
+    int slot;
+    int textureIndex;
+    glm::vec3 position;
+    glm::vec3 normal;
+    glm::vec3 up;
+    glm::vec3 widthAxis;
+    const char* wallSide;
+};
+
+struct CorridorContent
 {
     int corridorId;
-    glm::vec3 origin;
-    glm::vec3 forward;
-    float length;
-    float connectorLength;
-    glm::mat4 entryTransform;
-    glm::mat4 exitTransform;
+    CorridorContentFrame frame;
+    std::vector<PosterSlotLayout> posters;
+    std::vector<glm::vec3> lightPositions;
+    glm::vec3 salarymanSpawnPosition;
+    glm::vec3 salarymanForward;
+    bool hasAnomaly;
 };
 
-int g_LogicalCorridorStep = 0;
+struct CorridorInstance
+{
+    CorridorState state;
+    CorridorContent content;
+};
+
+int g_CurrentCorridorSequenceId = 0;
+int g_NextCorridorSequenceId = 1;
 int g_LastEnteredPhysicalSide = 0;
 int g_LastSalarymanSpawnCorridorId = -1;
 int g_PreparedNextCorridorId = -1;
 int g_PreparedTransitionDirection = 0;
 bool g_InConnectorTransition = false;
+bool g_ConnectorMidpointCrossed = false;
 int g_LastPlayerSection = -1;
-CorridorState g_CurrentCorridorState = {0, +1, +1, 0, false};
-CorridorState g_NegativeCandidateCorridorState = {1, -1, -1, 1, false};
-CorridorState g_PositiveCandidateCorridorState = {1, +1, +1, 2, false};
+CorridorInstance g_CurrentCorridorInstance;
+CorridorInstance g_NegativeCandidateCorridorInstance;
+CorridorInstance g_PositiveCandidateCorridorInstance;
 
-CorridorState MakeCorridorState(int id, int entry_side, int salt)
+const int kPosterCount = 4;
+
+int PositiveModulo(int value, int divisor)
 {
-    (void)salt;
+    int result = value % divisor;
+    return (result < 0) ? result + divisor : result;
+}
 
+int GetPosterTextureIndex(int corridor_id, int poster_slot)
+{
+    (void)corridor_id;
+    return PositiveModulo(poster_slot, kPosterCount);
+}
+
+CorridorContent GenerateCorridorContent(int corridor_id, const glm::vec3& content_forward);
+CorridorInstance CreateNewCorridorInstance(int logical_id, const glm::vec3& content_forward);
+
+CorridorState MakeCorridorState(int id)
+{
     CorridorState state;
     state.id = id;
-    state.entry_side = entry_side;
-    state.logical_forward_sign = (entry_side < 0) ? -1 : +1;
-    state.poster_shift = 0;
     state.has_anomaly = false; // Hook for later anomaly selection.
     return state;
 }
 
 void RefreshCandidateCorridorStates()
 {
-    g_NegativeCandidateCorridorState = MakeCorridorState(g_LogicalCorridorStep + 1, -1, 17);
-    g_PositiveCandidateCorridorState = MakeCorridorState(g_LogicalCorridorStep + 1, +1, 53);
+    g_NegativeCandidateCorridorInstance = CreateNewCorridorInstance(g_NextCorridorSequenceId, glm::vec3(0.0f, 0.0f, +1.0f));
+    g_PositiveCandidateCorridorInstance = CreateNewCorridorInstance(g_NextCorridorSequenceId, glm::vec3(0.0f, 0.0f, -1.0f));
+}
+
+void InitializeCorridorLifecycle()
+{
+    g_CurrentCorridorSequenceId = 0;
+    g_NextCorridorSequenceId = 1;
+    g_CurrentCorridorInstance = CreateNewCorridorInstance(g_CurrentCorridorSequenceId, glm::vec3(0.0f, 0.0f, -1.0f));
+    RefreshCandidateCorridorStates();
 }
 
 void ActivateNewLogicalCorridor(int physical_side)
 {
+    if (physical_side == 0)
+        return;
+
     g_LastEnteredPhysicalSide = physical_side;
-    ++g_LogicalCorridorStep;
-
-    if (physical_side < 0)
-        g_CurrentCorridorState = g_NegativeCandidateCorridorState;
-    else
-        g_CurrentCorridorState = g_PositiveCandidateCorridorState;
-
+    g_CurrentCorridorInstance = (physical_side < 0)
+                              ? g_NegativeCandidateCorridorInstance
+                              : g_PositiveCandidateCorridorInstance;
+    g_CurrentCorridorSequenceId = g_CurrentCorridorInstance.state.id;
+    g_NextCorridorSequenceId = g_CurrentCorridorSequenceId + 1;
     RefreshCandidateCorridorStates();
 }
 
@@ -412,29 +466,21 @@ const float kConnectorLength = kCorridorLength * 0.5f;
 const float kFloorTileSize = 0.5f;
 const float kCeilingTileSize = 2.5f;
 const float kWallTextureTileSize = 2.0f;
-const int kPosterCount = 4;
-const int kLampCount = 12;
 const char* kPosterNames[kPosterCount] = {"poster_0", "poster_1", "poster_2", "poster_3"};
 
 CanonicalCorridorLayout GetCanonicalCorridorLayout()
 {
     CanonicalCorridorLayout layout;
     layout.connector_length = kConnectorLength;
-    layout.corridor2_offset_x = -(4.0f * kCorridorHalfWidth + layout.connector_length);
-    layout.second_corridor_z_offset = kCorridorZ1 - 2.0f * kCornerLength - layout.connector_length;
-    layout.block_offset = glm::vec2(layout.corridor2_offset_x, layout.second_corridor_z_offset);
     layout.turn_z0 = kCorridorZ1;
     layout.turn_z1 = layout.turn_z0 - kCornerLength;
-    layout.short1_center_z = layout.turn_z0 - 0.5f * kCornerLength;
-    layout.short1_start_x = -kCorridorHalfWidth;
-    layout.short1_end_x = layout.short1_start_x - layout.connector_length;
-    layout.turn1_right_x = layout.short1_end_x - kCorridorHalfWidth;
-    layout.short2_start_z = layout.turn_z1;
-    layout.short2_end_z = layout.short2_start_z - layout.connector_length;
-    layout.turn2_left_x = layout.turn1_right_x;
-    layout.turn2_left_z = layout.short2_end_z;
-    layout.turn2_right_x = layout.turn2_left_x - 2.0f * kCorridorHalfWidth;
-    layout.turn2_right_z = layout.turn2_left_z;
+    layout.connector_center_z = layout.turn_z0 - 0.5f * kCornerLength;
+    layout.connector_start_x = -kCorridorHalfWidth;
+    layout.connector_end_x = layout.connector_start_x - layout.connector_length;
+    layout.exit_turn_x = layout.connector_end_x - kCorridorHalfWidth;
+    layout.corridor2_offset_x = layout.exit_turn_x;
+    layout.second_corridor_z_offset = layout.turn_z1;
+    layout.block_offset = glm::vec2(layout.corridor2_offset_x, layout.second_corridor_z_offset);
     return layout;
 }
 
@@ -450,36 +496,277 @@ glm::vec3 TransformVector(const glm::mat4& transform, const glm::vec3& vector)
     return glm::vec3(v.x, v.y, v.z);
 }
 
-CanonicalCorridorDefinition MakeCanonicalCorridorDefinition(int corridor_id, const glm::mat4& corridor_transform)
+CorridorRenderTransform MakeCorridorRenderTransform(const glm::mat4& geometry_from_local)
+{
+    CorridorRenderTransform transform;
+    transform.geometryFromLocal = geometry_from_local;
+    return transform;
+}
+
+CorridorContentFrame MakeCorridorContentFrame(int logical_corridor_id, const glm::vec3& requested_content_forward)
 {
     const CanonicalCorridorLayout layout = GetCanonicalCorridorLayout();
+    const glm::vec3 world_up(0.0f, 1.0f, 0.0f);
 
-    CanonicalCorridorDefinition corridor;
-    corridor.corridorId = corridor_id;
-    corridor.origin = TransformPoint(corridor_transform, glm::vec3(0.0f, 0.0f, kCorridorZ0));
-    corridor.forward = TransformVector(corridor_transform, glm::vec3(0.0f, 0.0f, -1.0f));
-    if (glm::length(corridor.forward) < 0.0001f)
-        corridor.forward = glm::vec3(0.0f, 0.0f, -1.0f);
+    CorridorContentFrame frame;
+    frame.logicalCorridorId = logical_corridor_id;
+    frame.contentForward = requested_content_forward;
+    if (glm::length(frame.contentForward) < 0.0001f)
+        frame.contentForward = glm::vec3(0.0f, 0.0f, -1.0f);
     else
-        corridor.forward = glm::normalize(corridor.forward);
-    corridor.length = kCorridorLength;
-    corridor.connectorLength = layout.connector_length;
-    corridor.entryTransform = corridor_transform;
-    corridor.exitTransform = corridor_transform * Matrix_Translate(layout.block_offset.x, 0.0f, layout.block_offset.y);
-    return corridor;
+        frame.contentForward = glm::normalize(frame.contentForward);
+
+    frame.contentRight = glm::cross(frame.contentForward, world_up);
+    if (glm::length(frame.contentRight) < 0.0001f)
+        frame.contentRight = glm::vec3(1.0f, 0.0f, 0.0f);
+    else
+        frame.contentRight = glm::normalize(frame.contentRight);
+
+    frame.contentOrigin = (glm::dot(frame.contentForward, glm::vec3(0.0f, 0.0f, -1.0f)) >= 0.0f)
+                        ? glm::vec3(0.0f, 0.0f, kCorridorZ0)
+                        : glm::vec3(0.0f, 0.0f, kCorridorZ1);
+    frame.corridorLength = kCorridorLength;
+    frame.connectorLength = layout.connector_length;
+    frame.posterWallSide = "canonical_left";
+    return frame;
 }
 
-CanonicalCorridorDefinition MakeCurrentCanonicalCorridorDefinition(int corridor_id)
+CorridorContent GenerateCorridorContent(int corridor_id, const glm::vec3& content_forward)
 {
-    return MakeCanonicalCorridorDefinition(corridor_id, Matrix_Identity());
+    const float poster_center_y = 1.6f;
+    const float poster_offset = 0.02f;
+    const float poster_wall_offset = kCorridorHalfWidth - poster_offset;
+    const float spacing = kCorridorLength / (kPosterCount + 1);
+    const float salaryman_spawn_distance = kCorridorLength * 0.70f;
+    const float salaryman_end_margin = 6.0f;
+
+    CorridorContent content;
+    content.corridorId = corridor_id;
+    content.frame = MakeCorridorContentFrame(corridor_id, content_forward);
+    content.posters.reserve(kPosterCount);
+    content.lightPositions.reserve(7);
+    content.hasAnomaly = false;
+
+    const CorridorContentFrame& frame = content.frame;
+    for (int slot = 0; slot < kPosterCount; ++slot)
+    {
+        const float poster_distance = (slot + 1) * spacing;
+
+        PosterSlotLayout poster;
+        poster.slot = slot;
+        poster.textureIndex = GetPosterTextureIndex(corridor_id, slot);
+        poster.position = frame.contentOrigin
+                        - frame.contentRight * poster_wall_offset
+                        + frame.contentForward * poster_distance;
+        poster.position.y = poster_center_y;
+        poster.normal = frame.contentRight;
+        poster.up = glm::vec3(0.0f, 1.0f, 0.0f);
+        poster.widthAxis = -frame.contentForward;
+        poster.wallSide = frame.posterWallSide;
+        content.posters.push_back(poster);
+    }
+
+    const CanonicalCorridorLayout layout = GetCanonicalCorridorLayout();
+    const float light_y = kCorridorHeight - 0.15f;
+    const float straight_light_spacing = kCorridorLength / 5.0f;
+    for (int i = 0; i < 4; ++i)
+    {
+        glm::vec3 light_position = frame.contentOrigin
+                                 + frame.contentForward * ((i + 1) * straight_light_spacing);
+        light_position.y = light_y;
+        content.lightPositions.push_back(light_position);
+    }
+    content.lightPositions.push_back(glm::vec3(0.0f, light_y, layout.turn_z0 - 0.5f * kCornerLength));
+    content.lightPositions.push_back(glm::vec3(layout.connector_start_x - 0.5f * layout.connector_length, light_y, layout.connector_center_z));
+    content.lightPositions.push_back(glm::vec3(layout.exit_turn_x, light_y, layout.turn_z0 - 0.5f * kCornerLength));
+
+    content.salarymanForward = -frame.contentForward;
+    const float clamped_spawn_distance = std::max(0.0f, std::min(salaryman_spawn_distance, frame.corridorLength - salaryman_end_margin));
+    content.salarymanSpawnPosition = frame.contentOrigin + frame.contentForward * clamped_spawn_distance;
+    content.salarymanSpawnPosition.y = 0.0f;
+
+    return content;
 }
 
-glm::vec3 ComputeSalarymanSpawnPosition(const CanonicalCorridorDefinition& corridor)
+CorridorInstance CreateNewCorridorInstance(int logical_id, const glm::vec3& content_forward)
 {
-    const float preferred_spawn_distance = 8.0f;
-    const float end_margin = 4.0f;
-    const float spawn_distance = std::max(0.0f, std::min(preferred_spawn_distance, corridor.length - end_margin));
-    glm::vec3 spawn_position = corridor.origin + corridor.forward * spawn_distance;
+    CorridorInstance instance;
+    instance.state = MakeCorridorState(logical_id);
+    instance.content = GenerateCorridorContent(logical_id, content_forward);
+    instance.state.has_anomaly = instance.content.hasAnomaly;
+    return instance;
+}
+
+std::string PosterOrderString(const CorridorContent& content)
+{
+    std::string poster_order;
+    for (const PosterSlotLayout& poster : content.posters)
+    {
+        if (!poster_order.empty())
+            poster_order += ",";
+        poster_order += std::to_string(poster.textureIndex);
+    }
+    return poster_order;
+}
+
+void LogCorridorContentSignature(const char* reason,
+                                 int render_slot,
+                                 int traversal_direction,
+                                 const CorridorInstance& corridor_instance,
+                                 const glm::vec3& block_display_offset)
+{
+    if (!kCorridorDebugLogsEnabled)
+        return;
+
+    const CorridorContent& content = corridor_instance.content;
+    const CorridorContentFrame& frame = content.frame;
+    const std::string poster_order = PosterOrderString(content);
+    const char* poster_wall_side = content.posters.empty() ? "none" : content.posters[0].wallSide;
+
+    printf("Corridor window content: reason=%s, renderSlot=%d, traversalDirection=%d, currentCorridorId=%d, corridorId=%d, blockOffset=(%.2f, %.2f, %.2f), contentOrigin=(%.2f, %.2f, %.2f), contentForward=(%.2f, %.2f, %.2f), contentRight=(%.2f, %.2f, %.2f), posterOrder=[%s], posterWallSide=%s, npcSpawnPosition=(%.2f, %.2f, %.2f), npcForward=(%.2f, %.2f, %.2f), lightCount=%d, anomaly=%s\n",
+           reason,
+           render_slot,
+           traversal_direction,
+           g_CurrentCorridorInstance.state.id,
+           content.corridorId,
+           block_display_offset.x, block_display_offset.y, block_display_offset.z,
+           frame.contentOrigin.x, frame.contentOrigin.y, frame.contentOrigin.z,
+           frame.contentForward.x, frame.contentForward.y, frame.contentForward.z,
+           frame.contentRight.x, frame.contentRight.y, frame.contentRight.z,
+           poster_order.c_str(),
+           poster_wall_side,
+           content.salarymanSpawnPosition.x, content.salarymanSpawnPosition.y, content.salarymanSpawnPosition.z,
+           content.salarymanForward.x, content.salarymanForward.y, content.salarymanForward.z,
+           static_cast<int>(content.lightPositions.size()),
+           content.hasAnomaly ? "true" : "false");
+
+    for (const PosterSlotLayout& poster : content.posters)
+    {
+        const glm::mat4 poster_basis = Matrix(
+            poster.normal.x, poster.up.x, poster.widthAxis.x, poster.position.x,
+            poster.normal.y, poster.up.y, poster.widthAxis.y, poster.position.y,
+            poster.normal.z, poster.up.z, poster.widthAxis.z, poster.position.z,
+            0.0f,            0.0f,        0.0f,              1.0f
+        );
+
+        printf("Corridor window poster: reason=%s, renderSlot=%d, traversalDirection=%d, corridorId=%d, posterSlot=%d, posterTextureIndex=%d, posterWallSide=%s, posterCanonicalPosition=(%.2f, %.2f, %.2f), posterNormal=(%.2f, %.2f, %.2f), posterTransform=[%.2f %.2f %.2f %.2f | %.2f %.2f %.2f %.2f | %.2f %.2f %.2f %.2f | %.2f %.2f %.2f %.2f]\n",
+               reason,
+               render_slot,
+               traversal_direction,
+               content.corridorId,
+               poster.slot,
+               poster.textureIndex,
+               poster.wallSide,
+               poster.position.x, poster.position.y, poster.position.z,
+               poster.normal.x, poster.normal.y, poster.normal.z,
+               poster_basis[0][0], poster_basis[1][0], poster_basis[2][0], poster_basis[3][0],
+               poster_basis[0][1], poster_basis[1][1], poster_basis[2][1], poster_basis[3][1],
+               poster_basis[0][2], poster_basis[1][2], poster_basis[2][2], poster_basis[3][2],
+               poster_basis[0][3], poster_basis[1][3], poster_basis[2][3], poster_basis[3][3]);
+    }
+}
+
+void LogCorridorSlotStability(const char* reason, int traversal_direction, const CorridorInstance& corridor_instance)
+{
+    if (!kCorridorDebugLogsEnabled)
+        return;
+
+    const CanonicalCorridorLayout layout = GetCanonicalCorridorLayout();
+    const glm::vec2 block_offset = layout.block_offset;
+    const glm::vec3 slot_offsets[] = {
+        glm::vec3(-block_offset.x, 0.0f, -block_offset.y),
+        glm::vec3(0.0f, 0.0f, 0.0f),
+        glm::vec3(block_offset.x, 0.0f, block_offset.y)
+    };
+    const int render_slots[] = {-1, 0, +1};
+
+    const CorridorContent& content = corridor_instance.content;
+    const CorridorContentFrame& frame = content.frame;
+    const std::string poster_order = PosterOrderString(content);
+    const char* poster_wall_side = content.posters.empty() ? "none" : content.posters[0].wallSide;
+
+    for (int i = 0; i < 3; ++i)
+    {
+        printf("Corridor slot stability: reason=%s, traversalDirection=%d, corridorId=%d, renderSlot=%d, blockOffset=(%.2f, %.2f, %.2f), contentOrigin=(%.2f, %.2f, %.2f), contentForward=(%.2f, %.2f, %.2f), contentRight=(%.2f, %.2f, %.2f), posterOrder=[%s], posterWallSide=%s, npcSpawnPosition=(%.2f, %.2f, %.2f), npcForward=(%.2f, %.2f, %.2f), signatureStable=true\n",
+               reason,
+               traversal_direction,
+               content.corridorId,
+               render_slots[i],
+               slot_offsets[i].x, slot_offsets[i].y, slot_offsets[i].z,
+               frame.contentOrigin.x, frame.contentOrigin.y, frame.contentOrigin.z,
+               frame.contentForward.x, frame.contentForward.y, frame.contentForward.z,
+               frame.contentRight.x, frame.contentRight.y, frame.contentRight.z,
+               poster_order.c_str(),
+               poster_wall_side,
+               content.salarymanSpawnPosition.x, content.salarymanSpawnPosition.y, content.salarymanSpawnPosition.z,
+               content.salarymanForward.x, content.salarymanForward.y, content.salarymanForward.z);
+    }
+}
+
+void LogCorridorWindow(const char* reason, int traversal_direction)
+{
+    if (!kCorridorDebugLogsEnabled)
+        return;
+
+    const CanonicalCorridorLayout layout = GetCanonicalCorridorLayout();
+    const glm::vec2 block_offset = layout.block_offset;
+
+    printf("Corridor window update: reason=%s, traversalDirection=%d, currentCorridorId=%d, activeCorridorIds=[%d,%d,%d], lastEnteredPhysicalSide=%d, preparedCorridorId=%d, lastSpawnedCorridorId=%d, salarymanActive=%s\n",
+           reason,
+           traversal_direction,
+           g_CurrentCorridorInstance.state.id,
+           g_NegativeCandidateCorridorInstance.state.id,
+           g_CurrentCorridorInstance.state.id,
+           g_PositiveCandidateCorridorInstance.state.id,
+           g_LastEnteredPhysicalSide,
+           g_PreparedNextCorridorId,
+           g_LastSalarymanSpawnCorridorId,
+           g_SalarymanNPC.active ? "true" : "false");
+
+    LogCorridorContentSignature(reason, -1, traversal_direction, g_NegativeCandidateCorridorInstance, glm::vec3(-block_offset.x, 0.0f, -block_offset.y));
+    LogCorridorContentSignature(reason, 0, traversal_direction, g_CurrentCorridorInstance, glm::vec3(0.0f, 0.0f, 0.0f));
+    LogCorridorContentSignature(reason, +1, traversal_direction, g_PositiveCandidateCorridorInstance, glm::vec3(block_offset.x, 0.0f, block_offset.y));
+    LogCorridorSlotStability(reason, traversal_direction, g_CurrentCorridorInstance);
+}
+
+void LogCorridorTransition(const char* reason,
+                           int traversal_direction,
+                           const CorridorContent& content,
+                           const glm::vec3& player_position)
+{
+    if (!kCorridorDebugLogsEnabled)
+        return;
+
+    const CorridorContentFrame& frame = content.frame;
+    const std::string poster_order = PosterOrderString(content);
+    const char* poster_wall_side = content.posters.empty() ? "none" : content.posters[0].wallSide;
+
+    printf("Corridor transition: reason=%s, traversalDirection=%d, corridorId=%d, contentForward=(%.2f, %.2f, %.2f), contentRight=(%.2f, %.2f, %.2f), posterOrder=[%s], posterWallSide=%s, npcSpawnPosition=(%.2f, %.2f, %.2f), npcForward=(%.2f, %.2f, %.2f), playerPosition=(%.2f, %.2f, %.2f)\n",
+           reason,
+           traversal_direction,
+           content.corridorId,
+           frame.contentForward.x, frame.contentForward.y, frame.contentForward.z,
+           frame.contentRight.x, frame.contentRight.y, frame.contentRight.z,
+           poster_order.c_str(),
+           poster_wall_side,
+           content.salarymanSpawnPosition.x, content.salarymanSpawnPosition.y, content.salarymanSpawnPosition.z,
+           content.salarymanForward.x, content.salarymanForward.y, content.salarymanForward.z,
+           player_position.x, player_position.y, player_position.z);
+}
+
+glm::vec3 ComputeSalarymanSpawnPosition(const CorridorContentFrame& frame)
+{
+    const float salaryman_spawn_distance = frame.corridorLength * 0.70f;
+    const float salaryman_end_margin = 6.0f;
+
+    glm::vec3 forward = frame.contentForward;
+    if (glm::length(forward) < 0.0001f)
+        forward = glm::vec3(0.0f, 0.0f, -1.0f);
+    else
+        forward = glm::normalize(forward);
+
+    const float clamped_spawn_distance = std::max(0.0f, std::min(salaryman_spawn_distance, frame.corridorLength - salaryman_end_margin));
+    glm::vec3 spawn_position = frame.contentOrigin + forward * clamped_spawn_distance;
     spawn_position.y = 0.0f;
     return spawn_position;
 }
@@ -489,44 +776,32 @@ const char* PlayerSectionName(int player_section)
     return (player_section == 1) ? "connector/turn" : "straight";
 }
 
-void TrySpawnSalarymanForCanonicalCorridor(const CanonicalCorridorDefinition& corridor,
-                                           const glm::vec3& player_position,
-                                           int player_section,
-                                           int traversal_direction,
-                                           const char* reason)
+void TrySpawnSalarymanForCorridorContent(const CorridorContent& content,
+                                         const glm::vec3& player_position,
+                                         const char* reason)
 {
-    const glm::vec3 spawn_position = ComputeSalarymanSpawnPosition(corridor);
-    const bool already_spawned = (g_LastSalarymanSpawnCorridorId == corridor.corridorId);
+    const CorridorContentFrame& frame = content.frame;
+    glm::vec3 spawn_forward = content.salarymanForward;
+    if (glm::length(spawn_forward) < 0.0001f)
+        spawn_forward = frame.contentForward;
+    if (glm::length(spawn_forward) < 0.0001f)
+        spawn_forward = glm::vec3(0.0f, 0.0f, -1.0f);
+    else
+        spawn_forward = glm::normalize(spawn_forward);
 
-    printf("Salaryman trigger: reason=%s, spawnCalled=%s, skipped=%s, currentCorridorId=%d, preparedCorridorId=%d, playerSection=%s, traversalDirection=%d, canonicalOrigin=(%.2f, %.2f, %.2f), canonicalForward=(%.2f, %.2f, %.2f), connectorLength=%.2f, playerPosition=(%.2f, %.2f, %.2f), spawnPosition=(%.2f, %.2f, %.2f), lastSpawnedCorridorId=%d, active=%s\n",
-           reason,
-           already_spawned ? "false" : "true",
-           already_spawned ? "already_spawned_for_corridor" : "none",
-           g_CurrentCorridorState.id,
-           g_PreparedNextCorridorId,
-           PlayerSectionName(player_section),
-           traversal_direction,
-           corridor.origin.x, corridor.origin.y, corridor.origin.z,
-           corridor.forward.x, corridor.forward.y, corridor.forward.z,
-           corridor.connectorLength,
-           player_position.x, player_position.y, player_position.z,
-           spawn_position.x, spawn_position.y, spawn_position.z,
-           g_LastSalarymanSpawnCorridorId,
-           g_SalarymanNPC.active ? "true" : "false");
+    const glm::vec3 spawn_position = content.salarymanSpawnPosition;
+    const bool already_spawned = (g_LastSalarymanSpawnCorridorId == frame.logicalCorridorId);
+
+    (void)reason;
+    (void)player_position;
+    (void)spawn_position;
+    (void)spawn_forward;
 
     if (already_spawned)
         return;
 
-    SpawnSalarymanForCorridor(g_SalarymanNPC, corridor, player_position);
-    g_LastSalarymanSpawnCorridorId = corridor.corridorId;
-
-    printf("Salaryman trigger result: reason=%s, currentCorridorId=%d, lastSpawnedCorridorId=%d, active=%s, spawnPosition=(%.2f, %.2f, %.2f), npcForward=(%.2f, %.2f, %.2f)\n",
-           reason,
-           g_CurrentCorridorState.id,
-           g_LastSalarymanSpawnCorridorId,
-           g_SalarymanNPC.active ? "true" : "false",
-           g_SalarymanNPC.position.x, g_SalarymanNPC.position.y, g_SalarymanNPC.position.z,
-           g_SalarymanNPC.forward.x, g_SalarymanNPC.forward.y, g_SalarymanNPC.forward.z);
+    SpawnSalarymanForCorridor(g_SalarymanNPC, content, player_position);
+    g_LastSalarymanSpawnCorridorId = frame.logicalCorridorId;
 }
 
 // Número de texturas carregadas pela função LoadTextureImage()
@@ -624,12 +899,13 @@ int main(int argc, char* argv[])
         std::exit(EXIT_FAILURE);
     g_SalarymanNPC.model = &g_SalarymanStaticModel;
 
-    const glm::vec3 initial_player_position(g_CameraPosition.x, g_CameraPosition.y, g_CameraPosition.z);
-    TrySpawnSalarymanForCanonicalCorridor(MakeCurrentCanonicalCorridorDefinition(g_CurrentCorridorState.id),
-                                          initial_player_position,
-                                          0,
-                                          0,
-                                          "initial");
+    InitializeCorridorLifecycle();
+    {
+        const glm::vec3 initial_player_position(g_CameraPosition.x, g_CameraPosition.y, g_CameraPosition.z);
+        TrySpawnSalarymanForCorridorContent(g_CurrentCorridorInstance.content, initial_player_position, "initial_corridor");
+    }
+
+    LogCorridorWindow("initial", 0);
 
     const GLuint kWallTextureUnit = 0;
     const GLuint kFloorTextureUnit = 1;
@@ -685,14 +961,9 @@ int main(int argc, char* argv[])
     const float connector_length = corridor_layout.connector_length;
     const glm::vec2 block_offset = corridor_layout.block_offset;
     const float turn_z0 = corridor_layout.turn_z0;
-    const float short1_center_z = corridor_layout.short1_center_z;
-    const float short1_start_x = corridor_layout.short1_start_x;
-    const float short2_start_z = corridor_layout.short2_start_z;
-    const float turn1_right_x = corridor_layout.turn1_right_x;
-    const float turn2_left_x = corridor_layout.turn2_left_x;
-    const float turn2_left_z = corridor_layout.turn2_left_z;
-    const float turn2_right_x = corridor_layout.turn2_right_x;
-    const float turn2_right_z = corridor_layout.turn2_right_z;
+    const float connector_center_z = corridor_layout.connector_center_z;
+    const float connector_start_x = corridor_layout.connector_start_x;
+    const float exit_turn_x = corridor_layout.exit_turn_x;
 
     std::vector<PointLight> corridor_lights;
     corridor_lights.reserve(kMaxLights);
@@ -727,17 +998,14 @@ int main(int argc, char* argv[])
         }
 
         corridor_lights.push_back(make_block_light(block_transform, glm::vec3(0.0f, kCorridorHeight - 0.15f, turn_z0 - 0.5f * kCornerLength)));
-        corridor_lights.push_back(make_block_light(block_transform, glm::vec3(short1_start_x - 0.5f * connector_length, kCorridorHeight - 0.15f, short1_center_z)));
-        corridor_lights.push_back(make_block_light(block_transform, glm::vec3(turn1_right_x, kCorridorHeight - 0.15f, turn_z0 - 0.5f * kCornerLength)));
-        corridor_lights.push_back(make_block_light(block_transform, glm::vec3(turn1_right_x, kCorridorHeight - 0.15f, short2_start_z - 0.5f * connector_length)));
-        corridor_lights.push_back(make_block_light(block_transform, glm::vec3(turn2_left_x, kCorridorHeight - 0.15f, turn2_left_z - 0.5f * kCornerLength)));
-        corridor_lights.push_back(make_block_light(block_transform, glm::vec3(turn2_right_x, kCorridorHeight - 0.15f, turn2_right_z - 0.5f * kCornerLength)));
+        corridor_lights.push_back(make_block_light(block_transform, glm::vec3(connector_start_x - 0.5f * connector_length, kCorridorHeight - 0.15f, connector_center_z)));
+        corridor_lights.push_back(make_block_light(block_transform, glm::vec3(exit_turn_x, kCorridorHeight - 0.15f, turn_z0 - 0.5f * kCornerLength)));
     };
 
     // Apply lights to the three physical treadmill tiles.
-    add_block_lights(Matrix_Translate(-block_offset.x, 0.0f, -block_offset.y)); // Negative-side candidate
+    add_block_lights(Matrix_Translate(-block_offset.x, 0.0f, -block_offset.y)); // Previous-side candidate
     add_block_lights(Matrix_Identity());                                        // Current physical block
-    add_block_lights(Matrix_Translate(block_offset.x, 0.0f, block_offset.y));   // Positive-side candidate
+    add_block_lights(Matrix_Translate(block_offset.x, 0.0f, block_offset.y));   // Next-side candidate
 
     // Inicializamos o código para renderização de texto.
     TextRendering_Init();
@@ -824,15 +1092,17 @@ int main(int argc, char* argv[])
         glUniform4f(g_camera_position_uniform, camera_position_c.x, camera_position_c.y, camera_position_c.z, camera_position_c.w);
         SetPointLights(corridor_lights);
 
-        auto draw_straight_corridor = [&](const glm::mat4& corridor_model,
+        auto draw_straight_corridor = [&](const CorridorRenderTransform& corridor_render,
+                                          const glm::mat4& content_placement,
                                           bool draw_posters,
-                                          const CorridorState& corridor_state,
+                                          const CorridorInstance& corridor_instance,
                                           const Material& floor_mat,
                                           const Material& ceiling_mat,
                                           const Material& wall_mat,
                                           float segment_start_distance,
                                           float segment_length_scale)
         {
+            const glm::mat4& corridor_model = corridor_render.geometryFromLocal;
             glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(corridor_model));
 
             Material floor_instance = floor_mat;
@@ -856,28 +1126,21 @@ int main(int argc, char* argv[])
 
             if (draw_posters)
             {
-                const float poster_width = 1.8f;
-                const float poster_height = 1.5f;
-                const float poster_center_y = 1.6f;
-                const float poster_offset = 0.02f;
-                const int poster_wall_sign = -corridor_state.logical_forward_sign;
-                const float poster_x = (float)poster_wall_sign * (kCorridorHalfWidth - poster_offset);
-                const float spacing = kCorridorLength / (kPosterCount + 1);
-                const glm::mat4 poster_facing = (poster_wall_sign < 0)
-                                              ? Matrix_Identity()
-                                              : Matrix_Rotate_Y(-3.141592f);
+                const CorridorContent& content = corridor_instance.content;
 
-                for (int i = 0; i < kPosterCount; ++i)
+                for (const PosterSlotLayout& poster : content.posters)
                 {
-                    const float center_z = -(i + 1) * spacing;
-                    const int poster_index = (i + corridor_state.poster_shift) % kPosterCount;
-                    glm::mat4 poster_model = corridor_model
-                                           * Matrix_Translate(poster_x, poster_center_y, center_z)
-                                           * poster_facing;
+                    glm::mat4 poster_basis = Matrix(
+                        poster.normal.x, poster.up.x, poster.widthAxis.x, poster.position.x,
+                        poster.normal.y, poster.up.y, poster.widthAxis.y, poster.position.y,
+                        poster.normal.z, poster.up.z, poster.widthAxis.z, poster.position.z,
+                        0.0f,            0.0f,        0.0f,              1.0f
+                    );
+                    glm::mat4 poster_model = content_placement * poster_basis;
                     glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(poster_model));
 
-                    ApplyMaterial(poster_materials[poster_index]);
-                    DrawVirtualObject(kPosterNames[poster_index]);
+                    ApplyMaterial(poster_materials[poster.textureIndex]);
+                    DrawVirtualObject(kPosterNames[poster.slot]);
                 }
             }
         };
@@ -926,21 +1189,20 @@ int main(int argc, char* argv[])
 
         // (1) Modular block (tile): corredor reto + quina esquerda + conector + quina direita.
         // O próximo tile começa em (corridor2_offset_x, second_corridor_z_offset) relativo ao tile atual.
-        auto draw_modular_block = [&](const glm::mat4& base_transform,
-                                      const CorridorState& corridor_state)
+        auto draw_modular_block = [&](const CorridorRenderTransform& block_render,
+                                      const glm::mat4& content_placement,
+                                      const CorridorInstance& corridor_instance)
         {
+            const glm::mat4& base_transform = block_render.geometryFromLocal;
             const float straight_start = 0.0f;
             const float corner1_start = kCorridorLength;
             const float connector1_start = corner1_start + kCornerLength;
             const float corner2_start = connector1_start + connector_length;
-            const float connector2_start = corner2_start + kCornerLength;
-            const float corner3_start = connector2_start + connector_length;
-            const float corner4_start = corner3_start + kCornerLength;
             const float full_segment_scale = 1.0f;
             const float connector_segment_scale = connector_length / kCorridorLength;
 
             // Corredor reto principal (eixo -Z) deste tile.
-            draw_straight_corridor(base_transform, true, corridor_state, floor_material, ceiling_material, wall_material, straight_start, full_segment_scale);
+            draw_straight_corridor(block_render, content_placement, true, corridor_instance, floor_material, ceiling_material, wall_material, straight_start, full_segment_scale);
 
             // Quina esquerda no final do corredor: base_transform * T(0,0,kCorridorZ1).
             glm::mat4 m = base_transform * Matrix_Translate(0.0f, 0.0f, turn_z0);
@@ -952,46 +1214,35 @@ int main(int argc, char* argv[])
 
             // Conector curto (eixo -X): base_transform * T(...) * R_y(+90°) * S(...).
             m = base_transform
-              * Matrix_Translate(short1_start_x, 0.0f, short1_center_z)
+              * Matrix_Translate(connector_start_x, 0.0f, connector_center_z)
               * Matrix_Rotate_Y(3.141592f / 2.0f)
               * Matrix_Scale(1.0f, 1.0f, connector_length / kCorridorLength);
-            draw_straight_corridor(m, false, corridor_state, floor_material, ceiling_material, wall_material, connector1_start, connector_segment_scale);
+            draw_straight_corridor(MakeCorridorRenderTransform(m), content_placement, false, corridor_instance, floor_material, ceiling_material, wall_material, connector1_start, connector_segment_scale);
 
             // Quina direita no fim do conector: base_transform * T(corridor2_offset_x,0,kCorridorZ1).
-            m = base_transform * Matrix_Translate(turn1_right_x, 0.0f, turn_z0);
+            m = base_transform * Matrix_Translate(exit_turn_x, 0.0f, turn_z0);
             draw_corner(m,
                         "corner_right_floor", "corner_right_ceiling",
                         "corner_right_wall_front", "corner_right_wall_left",
                         corner2_start,
                         false, true);
 
-            m = base_transform
-              * Matrix_Translate(turn1_right_x, 0.0f, short2_start_z)
-              * Matrix_Scale(1.0f, 1.0f, connector_length / kCorridorLength);
-            draw_straight_corridor(m, false, corridor_state, floor_material, ceiling_material, wall_material, connector2_start, connector_segment_scale);
-
-            m = base_transform * Matrix_Translate(turn2_left_x, 0.0f, turn2_left_z);
-            draw_corner(m,
-                        "corner_left_floor", "corner_left_ceiling",
-                        "corner_left_wall_back", "corner_left_wall_right",
-                        corner3_start,
-                        false, true);
-
-            m = base_transform * Matrix_Translate(turn2_right_x, 0.0f, turn2_right_z);
-            draw_corner(m,
-                        "corner_right_floor", "corner_right_ceiling",
-                        "corner_right_wall_front", "corner_right_wall_left",
-                        corner4_start,
-                        false, true);
         };
 
-        // (2) 3-Tile Treadmill: side blocks are fresh candidates, not history.
-        draw_modular_block(Matrix_Translate(-block_offset.x, 0.0f, -block_offset.y),
-                           g_NegativeCandidateCorridorState);
-        draw_modular_block(Matrix_Identity(),
-                           g_CurrentCorridorState);
-        draw_modular_block(Matrix_Translate(block_offset.x, 0.0f, block_offset.y),
-                           g_PositiveCandidateCorridorState);
+        // (2) 3-Tile Treadmill: side blocks are the canonical previous/next candidates.
+        const glm::mat4 negative_slot_transform = Matrix_Translate(-block_offset.x, 0.0f, -block_offset.y);
+        const glm::mat4 current_slot_transform = Matrix_Identity();
+        const glm::mat4 positive_slot_transform = Matrix_Translate(block_offset.x, 0.0f, block_offset.y);
+
+        draw_modular_block(MakeCorridorRenderTransform(negative_slot_transform),
+                           negative_slot_transform,
+                           g_NegativeCandidateCorridorInstance);
+        draw_modular_block(MakeCorridorRenderTransform(current_slot_transform),
+                           current_slot_transform,
+                           g_CurrentCorridorInstance);
+        draw_modular_block(MakeCorridorRenderTransform(positive_slot_transform),
+                           positive_slot_transform,
+                           g_PositiveCandidateCorridorInstance);
         DrawSalarymanNPC(g_SalarymanNPC, salaryman_material);
 
         // Imprimimos na tela os ângulos de Euler que controlam a rotação do
@@ -1719,33 +1970,28 @@ bool LoadSalarymanStaticModel(StaticModel& model, const char* filename)
     return true;
 }
 
-void SpawnSalarymanForCorridor(SalarymanNPC& salaryman, const CanonicalCorridorDefinition& corridor, const glm::vec3& player_position)
+void SpawnSalarymanForCorridor(SalarymanNPC& salaryman, const CorridorContent& content, const glm::vec3& player_position)
 {
-    glm::vec3 path_forward = corridor.forward;
+    const CorridorContentFrame& frame = content.frame;
+    glm::vec3 path_forward = content.salarymanForward;
+    if (glm::length(path_forward) < 0.0001f)
+        path_forward = frame.contentForward;
     if (glm::length(path_forward) < 0.0001f)
         path_forward = glm::vec3(0.0f, 0.0f, -1.0f);
     else
         path_forward = glm::normalize(path_forward);
 
-    const glm::vec3 spawn_position = ComputeSalarymanSpawnPosition(corridor);
+    const glm::vec3 spawn_position = content.salarymanSpawnPosition;
     salaryman.active = true;
-    salaryman.corridorId = corridor.corridorId;
+    salaryman.corridorId = frame.logicalCorridorId;
     salaryman.position = spawn_position;
     salaryman.forward = path_forward;
     salaryman.speed = 1.35f;
-    salaryman.corridorLength = corridor.length;
-    salaryman.corridorOrigin = corridor.origin;
+    salaryman.corridorLength = frame.corridorLength;
+    salaryman.corridorOrigin = frame.contentOrigin - path_forward * frame.corridorLength;
     salaryman.useAnimation = false;
 
-    printf("Salaryman spawn: corridorId=%d, corridorStart=(%.2f, %.2f, %.2f), corridorForward=(%.2f, %.2f, %.2f), corridorLength=%.2f, connectorLength=%.2f, spawnPosition=(%.2f, %.2f, %.2f), npcForward=(%.2f, %.2f, %.2f), playerPosition=(%.2f, %.2f, %.2f)\n",
-           corridor.corridorId,
-           corridor.origin.x, corridor.origin.y, corridor.origin.z,
-           path_forward.x, path_forward.y, path_forward.z,
-           corridor.length,
-           corridor.connectorLength,
-           salaryman.position.x, salaryman.position.y, salaryman.position.z,
-           salaryman.forward.x, salaryman.forward.y, salaryman.forward.z,
-           player_position.x, player_position.y, player_position.z);
+    (void)player_position;
 }
 
 void UpdateSalarymanNPC(SalarymanNPC& salaryman, float delta_time, const glm::vec4& camera_position_c)
@@ -1766,20 +2012,29 @@ void UpdateSalarymanNPC(SalarymanNPC& salaryman, float delta_time, const glm::ve
 
     if (corridor_progress < -2.0f)
     {
-        printf("Salaryman despawn: reason=behind_spawn corridorId=%d progress=%.2f playerDistance=%.2f position=(%.2f, %.2f, %.2f), active=false\n",
-               salaryman.corridorId, corridor_progress, player_distance, salaryman.position.x, salaryman.position.y, salaryman.position.z);
+        if (kCorridorDebugLogsEnabled)
+        {
+            printf("Salaryman despawn: reason=behind_spawn corridorId=%d progress=%.2f playerDistance=%.2f position=(%.2f, %.2f, %.2f), active=false\n",
+                   salaryman.corridorId, corridor_progress, player_distance, salaryman.position.x, salaryman.position.y, salaryman.position.z);
+        }
         salaryman.active = false;
     }
     else if (corridor_progress > salaryman.corridorLength + 2.0f)
     {
-        printf("Salaryman despawn: reason=exited_corridor corridorId=%d progress=%.2f playerDistance=%.2f position=(%.2f, %.2f, %.2f), active=false\n",
-               salaryman.corridorId, corridor_progress, player_distance, salaryman.position.x, salaryman.position.y, salaryman.position.z);
+        if (kCorridorDebugLogsEnabled)
+        {
+            printf("Salaryman despawn: reason=exited_corridor corridorId=%d progress=%.2f playerDistance=%.2f position=(%.2f, %.2f, %.2f), active=false\n",
+                   salaryman.corridorId, corridor_progress, player_distance, salaryman.position.x, salaryman.position.y, salaryman.position.z);
+        }
         salaryman.active = false;
     }
     else if (player_distance > 55.0f)
     {
-        printf("Salaryman despawn: reason=too_far corridorId=%d progress=%.2f playerDistance=%.2f position=(%.2f, %.2f, %.2f), active=false\n",
-               salaryman.corridorId, corridor_progress, player_distance, salaryman.position.x, salaryman.position.y, salaryman.position.z);
+        if (kCorridorDebugLogsEnabled)
+        {
+            printf("Salaryman despawn: reason=too_far corridorId=%d progress=%.2f playerDistance=%.2f position=(%.2f, %.2f, %.2f), active=false\n",
+                   salaryman.corridorId, corridor_progress, player_distance, salaryman.position.x, salaryman.position.y, salaryman.position.z);
+        }
         salaryman.active = false;
     }
 }
@@ -2737,45 +2992,30 @@ void UpdateCameraFromInput(GLFWwindow* window, float delta_time)
 
     const CanonicalCorridorLayout corridor_layout = GetCanonicalCorridorLayout();
     const glm::vec2 block_offset = corridor_layout.block_offset;
+    const float connector_length = corridor_layout.connector_length;
     const float connector_half_width = kCorridorHalfWidth - player_radius;
     const float joint_overlap = player_radius * 2.0f;
     const float turn_z0 = corridor_layout.turn_z0;
     const float turn_z1 = corridor_layout.turn_z1;
-    const float short1_center_z = corridor_layout.short1_center_z;
-    const float short1_start_x = corridor_layout.short1_start_x;
-    const float short1_end_x = corridor_layout.short1_end_x;
-    const float turn1_right_x = corridor_layout.turn1_right_x;
-    const float short2_start_z = corridor_layout.short2_start_z;
-    const float short2_end_z = corridor_layout.short2_end_z;
-    const float turn2_left_x = corridor_layout.turn2_left_x;
-    const float turn2_left_z = corridor_layout.turn2_left_z;
-    const float turn2_right_x = corridor_layout.turn2_right_x;
-    const float turn2_right_z = corridor_layout.turn2_right_z;
+    const float connector_center_z = corridor_layout.connector_center_z;
+    const float connector_start_x = corridor_layout.connector_start_x;
+    const float connector_end_x = corridor_layout.connector_end_x;
+    const float exit_turn_x = corridor_layout.exit_turn_x;
 
     // Todas as caixas abaixo estão no espaço local do "Bloco 0" (tile central).
     const WalkableBox2D corridor1 = {-first_x_limit, +first_x_limit, kCorridorZ1 - joint_overlap, first_z_max};
     const WalkableBox2D corner_left_1 = {-kCorridorHalfWidth, +kCorridorHalfWidth,
                                          turn_z1 + player_radius, turn_z0 + joint_overlap};
-    const WalkableBox2D short_corridor_1 = {short1_end_x - joint_overlap, short1_start_x + joint_overlap,
-                                            short1_center_z - connector_half_width,
-                                            short1_center_z + connector_half_width};
-    const WalkableBox2D corner_right_1 = {turn1_right_x - kCorridorHalfWidth, turn1_right_x + kCorridorHalfWidth,
-                                          turn_z1 + player_radius, turn_z0 + joint_overlap};
-    const WalkableBox2D short_corridor_2 = {turn1_right_x - connector_half_width,
-                                            turn1_right_x + connector_half_width,
-                                            short2_end_z - joint_overlap, short2_start_z + joint_overlap};
-    const WalkableBox2D corner_left_2 = {turn2_left_x - kCorridorHalfWidth, turn2_left_x + kCorridorHalfWidth,
-                                         turn2_left_z - kCornerLength + player_radius, turn2_left_z + joint_overlap};
-    const WalkableBox2D corner_right_2 = {turn2_right_x - kCorridorHalfWidth, turn2_right_x + kCorridorHalfWidth,
-                                          turn2_right_z - kCornerLength + player_radius, turn2_right_z + joint_overlap};
+    const WalkableBox2D connector_corridor = {connector_end_x - joint_overlap, connector_start_x + joint_overlap,
+                                              connector_center_z - connector_half_width,
+                                              connector_center_z + connector_half_width};
+    const WalkableBox2D corner_right_1 = {exit_turn_x - kCorridorHalfWidth, exit_turn_x + kCorridorHalfWidth,
+                                          turn_z1 - joint_overlap, turn_z0 + joint_overlap};
     const WalkableBox2D walkable_boxes[] = {
         corridor1,
         corner_left_1,
-        short_corridor_1,
-        corner_right_1,
-        short_corridor_2,
-        corner_left_2,
-        corner_right_2
+        connector_corridor,
+        corner_right_1
     };
 
     auto clampf = [](float value, float min_value, float max_value)
@@ -2845,7 +3085,12 @@ void UpdateCameraFromInput(GLFWwindow* window, float delta_time)
         p = best;
     }
 
+    p_world = p + (float)block_index * block_offset;
+
     const bool inside_straight_corridor = inside_box(corridor1, p.x, p.y);
+    const bool inside_shared_connector = inside_box(connector_corridor, p.x, p.y);
+    const bool inside_entry_turn = inside_box(corner_left_1, p.x, p.y);
+    const bool inside_exit_turn = inside_box(corner_right_1, p.x, p.y);
     bool inside_connector_turn = false;
     for (size_t i = 1; i < sizeof(walkable_boxes) / sizeof(walkable_boxes[0]); ++i)
     {
@@ -2856,111 +3101,76 @@ void UpdateCameraFromInput(GLFWwindow* window, float delta_time)
         }
     }
 
+    float connector_progress = 0.0f;
+    if (inside_shared_connector)
+        connector_progress = clampf((connector_start_x - p.x) / connector_length, 0.0f, 1.0f);
+    else if (inside_exit_turn)
+        connector_progress = 1.0f;
+    else if (inside_entry_turn)
+        connector_progress = 0.0f;
+
     const int player_section = inside_connector_turn ? 1 : 0;
     if (player_section != g_LastPlayerSection)
     {
-        const CanonicalCorridorDefinition canonical_corridor = MakeCurrentCanonicalCorridorDefinition(g_CurrentCorridorState.id);
-        printf("Corridor debug: playerSection=%s, traversalDirection=%d, currentCorridorId=%d, preparedCorridorId=%d, canonicalOrigin=(%.2f, %.2f, %.2f), canonicalForward=(%.2f, %.2f, %.2f), playerPosition=(%.2f, %.2f, %.2f), lastSpawnedCorridorId=%d, active=%s\n",
-               PlayerSectionName(player_section),
-               block_index,
-               g_CurrentCorridorState.id,
-               g_PreparedNextCorridorId,
-               canonical_corridor.origin.x, canonical_corridor.origin.y, canonical_corridor.origin.z,
-               canonical_corridor.forward.x, canonical_corridor.forward.y, canonical_corridor.forward.z,
-               g_CameraPosition.x, g_CameraPosition.y, g_CameraPosition.z,
-               g_LastSalarymanSpawnCorridorId,
-               g_SalarymanNPC.active ? "true" : "false");
         g_LastPlayerSection = player_section;
     }
 
-    auto log_connector_state = [&](int transition_direction)
+    auto candidate_for_direction = [&](int transition_direction) -> const CorridorInstance&
+    {
+        return (transition_direction > 0)
+             ? g_PositiveCandidateCorridorInstance
+             : g_NegativeCandidateCorridorInstance;
+    };
+
+    auto log_connector_enter = [&](int transition_direction)
     {
         if (transition_direction == 0)
             return;
 
-        const CorridorState& prepared_state = (transition_direction > 0)
-                                            ? g_PositiveCandidateCorridorState
-                                            : g_NegativeCandidateCorridorState;
-        g_PreparedNextCorridorId = prepared_state.id;
         g_PreparedTransitionDirection = transition_direction;
-
-        const CanonicalCorridorDefinition canonical_corridor = MakeCurrentCanonicalCorridorDefinition(prepared_state.id);
-        printf("Corridor prepare: playerSection=connector/turn, traversalDirection=%d, currentCorridorId=%d, preparedCorridorId=%d, canonicalOrigin=(%.2f, %.2f, %.2f), canonicalForward=(%.2f, %.2f, %.2f), playerPosition=(%.2f, %.2f, %.2f), lastSpawnedCorridorId=%d, active=%s, posterStatePrepared=true\n",
-               transition_direction,
-               g_CurrentCorridorState.id,
-               prepared_state.id,
-               canonical_corridor.origin.x, canonical_corridor.origin.y, canonical_corridor.origin.z,
-               canonical_corridor.forward.x, canonical_corridor.forward.y, canonical_corridor.forward.z,
-               g_CameraPosition.x, g_CameraPosition.y, g_CameraPosition.z,
-               g_LastSalarymanSpawnCorridorId,
-               g_SalarymanNPC.active ? "true" : "false");
+        g_PreparedNextCorridorId = -1;
     };
 
     if (inside_connector_turn)
     {
-        const int transition_direction = (block_index < 0) ? -1 : +1;
         if (!g_InConnectorTransition)
         {
             g_InConnectorTransition = true;
-            log_connector_state(transition_direction);
+            g_ConnectorMidpointCrossed = false;
+            const int transition_direction = (block_index < 0) ? -1 : +1;
+            log_connector_enter(transition_direction);
+        }
+
+        const int transition_direction = (g_PreparedTransitionDirection == 0)
+                                       ? ((block_index < 0) ? -1 : +1)
+                                       : g_PreparedTransitionDirection;
+        const bool midpoint_crossed_now = (transition_direction > 0)
+                                        ? (connector_progress >= 0.5f)
+                                        : (connector_progress <= 0.5f);
+
+        if (!g_ConnectorMidpointCrossed && midpoint_crossed_now)
+        {
+            g_PreparedNextCorridorId = candidate_for_direction(transition_direction).state.id;
+            g_ConnectorMidpointCrossed = true;
+
+            ActivateNewLogicalCorridor(transition_direction);
+            if (transition_direction > 0)
+                p_world -= block_offset;
+            else
+                p_world += block_offset;
+
+            const glm::vec3 player_position(p_world.x, g_CameraPosition.y, p_world.y);
+            TrySpawnSalarymanForCorridorContent(g_CurrentCorridorInstance.content, player_position, "connector_midpoint");
+            LogCorridorTransition("connector_midpoint", transition_direction, g_CurrentCorridorInstance.content, player_position);
+            g_PreparedNextCorridorId = -1;
         }
     }
     else if (inside_straight_corridor && g_InConnectorTransition)
     {
-        const CanonicalCorridorDefinition canonical_corridor = MakeCurrentCanonicalCorridorDefinition(g_CurrentCorridorState.id);
-        printf("Corridor debug: connectorExitToStraight traversalDirection=%d, currentCorridorId=%d, preparedCorridorId=%d, canonicalOrigin=(%.2f, %.2f, %.2f), canonicalForward=(%.2f, %.2f, %.2f), playerPosition=(%.2f, %.2f, %.2f), lastSpawnedCorridorId=%d, active=%s\n",
-               g_PreparedTransitionDirection,
-               g_CurrentCorridorState.id,
-               g_PreparedNextCorridorId,
-               canonical_corridor.origin.x, canonical_corridor.origin.y, canonical_corridor.origin.z,
-               canonical_corridor.forward.x, canonical_corridor.forward.y, canonical_corridor.forward.z,
-               g_CameraPosition.x, g_CameraPosition.y, g_CameraPosition.z,
-               g_LastSalarymanSpawnCorridorId,
-               g_SalarymanNPC.active ? "true" : "false");
         g_InConnectorTransition = false;
-    }
-
-    // (5-6) Bi-directional treadmill recentering: both physical sides enter a new logical corridor.
-    p_world = p + (float)block_index * block_offset;
-    while (block_index > 0)
-    {
-        ActivateNewLogicalCorridor(+1);
-        p_world -= block_offset;
-        const glm::vec3 player_position(p_world.x, g_CameraPosition.y, p_world.y);
-        const CanonicalCorridorDefinition canonical_corridor = MakeCurrentCanonicalCorridorDefinition(g_CurrentCorridorState.id);
-        TrySpawnSalarymanForCanonicalCorridor(canonical_corridor, player_position, 0, +1, "activation");
-        printf("Corridor activate: traversalDirection=1, currentCorridorId=%d, preparedCorridorId=%d, canonicalOrigin=(%.2f, %.2f, %.2f), canonicalForward=(%.2f, %.2f, %.2f), playerPosition=(%.2f, %.2f, %.2f), lastSpawnedCorridorId=%d, active=%s\n",
-               g_CurrentCorridorState.id,
-               g_PreparedNextCorridorId,
-               canonical_corridor.origin.x, canonical_corridor.origin.y, canonical_corridor.origin.z,
-               canonical_corridor.forward.x, canonical_corridor.forward.y, canonical_corridor.forward.z,
-               player_position.x, player_position.y, player_position.z,
-               g_LastSalarymanSpawnCorridorId,
-               g_SalarymanNPC.active ? "true" : "false");
         g_PreparedNextCorridorId = -1;
         g_PreparedTransitionDirection = 0;
-        g_InConnectorTransition = false;
-        --block_index;
-    }
-    while (block_index < 0)
-    {
-        ActivateNewLogicalCorridor(-1);
-        p_world += block_offset;
-        const glm::vec3 player_position(p_world.x, g_CameraPosition.y, p_world.y);
-        const CanonicalCorridorDefinition canonical_corridor = MakeCurrentCanonicalCorridorDefinition(g_CurrentCorridorState.id);
-        TrySpawnSalarymanForCanonicalCorridor(canonical_corridor, player_position, 0, -1, "activation");
-        printf("Corridor activate: traversalDirection=-1, currentCorridorId=%d, preparedCorridorId=%d, canonicalOrigin=(%.2f, %.2f, %.2f), canonicalForward=(%.2f, %.2f, %.2f), playerPosition=(%.2f, %.2f, %.2f), lastSpawnedCorridorId=%d, active=%s\n",
-               g_CurrentCorridorState.id,
-               g_PreparedNextCorridorId,
-               canonical_corridor.origin.x, canonical_corridor.origin.y, canonical_corridor.origin.z,
-               canonical_corridor.forward.x, canonical_corridor.forward.y, canonical_corridor.forward.z,
-               player_position.x, player_position.y, player_position.z,
-               g_LastSalarymanSpawnCorridorId,
-               g_SalarymanNPC.active ? "true" : "false");
-        g_PreparedNextCorridorId = -1;
-        g_PreparedTransitionDirection = 0;
-        g_InConnectorTransition = false;
-        ++block_index;
+        g_ConnectorMidpointCrossed = false;
     }
 
     g_CameraPosition.x = p_world.x;
