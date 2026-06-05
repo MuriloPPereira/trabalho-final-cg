@@ -13,10 +13,17 @@ SalarymanAnimatedModel g_PlayerAnimatedModel;
 SalarymanAnimator g_PlayerAnimator;
 PlayerCharacter g_PlayerCharacter;
 
+namespace {
+constexpr float kPlayerWorldSpeedMultiplier = 2.75f;
+constexpr float kPlayerAnimationPlaybackScale = 1.25f;
+constexpr float kPlayerRequestedSpeedScale = 1.5f;
+}
+
 PlayerCharacter::PlayerCharacter()
     : loaded(false), moving(false), useAnimation(false),
       position(0.0f, 0.0f, -1.0f), forward(0.0f, 0.0f, -1.0f), yaw(0.0f),
-      speed(10.0f), model(NULL), animatedModel(NULL), animator(NULL) {}
+      speed(1.5f), baseWalkSpeed(0.67f), animationPlaybackScale(1.0f),
+      locomotionScale(1.0f), model(NULL), animatedModel(NULL), animator(NULL) {}
 
 bool LoadPlayerCharacterModel() {
   g_PlayerCharacter.model = NULL;
@@ -24,12 +31,30 @@ bool LoadPlayerCharacterModel() {
   g_PlayerCharacter.animator = &g_PlayerAnimator;
 
   const char *model_path = "assets/characterwalking.fbx";
-  if (LoadSalarymanAnimatedModel(g_PlayerAnimatedModel, model_path)) {
+  if (LoadTexturedAnimatedModel(g_PlayerAnimatedModel, model_path,
+                                "assets/character/Ch09_1001_Diffuse.png",
+                                NULL, "player character")) {
     g_PlayerAnimator.model = &g_PlayerAnimatedModel;
     g_PlayerAnimator.currentTime = 0.0f;
     UpdateSalarymanAnimation(g_PlayerAnimator, 0.0f);
     g_PlayerCharacter.loaded = true;
     g_PlayerCharacter.useAnimation = true;
+    if (g_PlayerAnimatedModel.recommendedWalkSpeed > 0.05f)
+      g_PlayerCharacter.baseWalkSpeed = g_PlayerAnimatedModel.recommendedWalkSpeed;
+    else
+      g_PlayerCharacter.baseWalkSpeed = 0.70f;
+    g_PlayerCharacter.animationPlaybackScale = kPlayerAnimationPlaybackScale;
+    g_PlayerCharacter.speed =
+        g_PlayerCharacter.baseWalkSpeed * kPlayerWorldSpeedMultiplier *
+        kPlayerRequestedSpeedScale;
+    printf("Player character movement retimed: baseSpeed=%.3f "
+           "worldMultiplier=%.2f requestedSpeedScale=%.2f "
+           "animationPlayback=%.2f finalSpeed=%.3f cycleDistanceScale=%.2f\n",
+           g_PlayerCharacter.baseWalkSpeed, kPlayerWorldSpeedMultiplier,
+           kPlayerRequestedSpeedScale,
+           g_PlayerCharacter.animationPlaybackScale, g_PlayerCharacter.speed,
+           (kPlayerWorldSpeedMultiplier * kPlayerRequestedSpeedScale) /
+               kPlayerAnimationPlaybackScale);
     printf("Player character render mode: animated\n");
     return true;
   }
@@ -61,7 +86,9 @@ void UpdatePlayerCharacterAnimation(PlayerCharacter &player,
     return;
 
   if (player.moving) {
-    UpdateSalarymanAnimation(*player.animator, delta_time);
+    UpdateSalarymanAnimation(*player.animator,
+                             delta_time * player.animationPlaybackScale *
+                                 player.locomotionScale);
   } else {
     player.animator->currentTime = 0.0f;
     UpdateSalarymanAnimation(*player.animator, 0.0f);

@@ -65,8 +65,8 @@ glm::vec4 ComputeCameraViewVector() {
 }
 
 void UpdateThirdPersonCameraFromPlayer() {
-  const glm::vec4 front4 = ComputeCameraFrontVector();
-  glm::vec3 front(front4.x, front4.y, front4.z);
+  glm::vec3 front = g_PlayerCharacter.forward;
+  front.y = 0.0f;
   if (glm::length(front) < 0.0001f)
     front = glm::vec3(0.0f, 0.0f, -1.0f);
   else
@@ -74,7 +74,8 @@ void UpdateThirdPersonCameraFromPlayer() {
 
   const glm::vec3 target =
       g_PlayerCharacter.position + glm::vec3(0.0f, 1.35f, 0.0f);
-  glm::vec3 desired_camera = target - front * 4.5f;
+  glm::vec3 desired_camera =
+      target - front * 4.5f + glm::vec3(0.0f, 0.85f, 0.0f);
   desired_camera.y =
       std::max(0.65f, std::min(kCorridorHeight - 0.20f, desired_camera.y));
 
@@ -88,37 +89,42 @@ void UpdateThirdPersonCameraFromPlayer() {
 }
 
 void UpdateCameraFromInput(GLFWwindow *window, float delta_time) {
+  const bool sprint_active =
+      glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
+      glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
+  const float sprint_multiplier = sprint_active ? 2.0f : 1.0f;
+
   if (g_UseThirdPersonCamera) {
-    const glm::vec4 front4 = ComputeCameraFrontVector();
-    glm::vec3 front(front4.x, 0.0f, front4.z);
+    g_PlayerCharacter.locomotionScale = sprint_multiplier;
+
+    const float turn_speed = 2.6f;
+    float turn_input = 0.0f;
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+      turn_input -= 1.0f;
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+      turn_input += 1.0f;
+    g_PlayerCharacter.yaw += turn_input * turn_speed * delta_time;
+
+    glm::vec3 front(std::sin(g_PlayerCharacter.yaw), 0.0f,
+                    -std::cos(g_PlayerCharacter.yaw));
     if (glm::length(front) < 0.0001f)
       front = glm::vec3(0.0f, 0.0f, -1.0f);
     else
       front = glm::normalize(front);
-
-    glm::vec3 right = glm::cross(front, glm::vec3(0.0f, 1.0f, 0.0f));
-    if (glm::length(right) < 0.0001f)
-      right = glm::vec3(1.0f, 0.0f, 0.0f);
-    else
-      right = glm::normalize(right);
+    g_PlayerCharacter.forward = front;
 
     glm::vec3 movement(0.0f, 0.0f, 0.0f);
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
       movement += front;
     if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
       movement -= front;
-    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-      movement -= right;
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-      movement += right;
 
-    g_PlayerCharacter.moving = (glm::length(movement) > 0.0001f);
-    if (g_PlayerCharacter.moving) {
+    const bool input_requests_movement = (glm::length(movement) > 0.0001f);
+    const glm::vec3 previous_player_position = g_PlayerCharacter.position;
+    if (input_requests_movement) {
       movement = glm::normalize(movement);
       g_PlayerCharacter.position +=
-          movement * g_PlayerCharacter.speed * delta_time;
-      g_PlayerCharacter.forward = movement;
-      g_PlayerCharacter.yaw = std::atan2(movement.x, -movement.z);
+          movement * g_PlayerCharacter.speed * sprint_multiplier * delta_time;
     }
 
     const float player_radius = 0.15f;
@@ -134,12 +140,23 @@ void UpdateCameraFromInput(GLFWwindow *window, float delta_time) {
     g_PlayerCharacter.position.y = 0.0f;
     g_PlayerCharacter.position.z = player_collision_position.z;
 
+    glm::vec3 actual_movement =
+        g_PlayerCharacter.position - previous_player_position;
+    actual_movement.y = 0.0f;
+    g_PlayerCharacter.moving = (glm::length(actual_movement) > 0.0005f);
+    if (g_PlayerCharacter.moving) {
+      actual_movement = glm::normalize(actual_movement);
+      g_PlayerCharacter.forward = actual_movement;
+      g_PlayerCharacter.yaw =
+          std::atan2(actual_movement.x, -actual_movement.z);
+    }
+
     UpdatePlayerCharacterAnimation(g_PlayerCharacter, delta_time);
     UpdateThirdPersonCameraFromPlayer();
     return;
   }
 
-  float movement_speed = 10.0f;
+  float movement_speed = 10.0f * sprint_multiplier;
   float step = movement_speed * delta_time;
 
   glm::vec4 front = ComputeCameraFrontVector();

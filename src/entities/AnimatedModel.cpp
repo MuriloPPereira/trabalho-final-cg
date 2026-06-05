@@ -32,7 +32,8 @@ SalarymanAnimatedNode::SalarymanAnimatedNode() : transform(Matrix_Identity()) {}
 SalarymanAnimatedModel::SalarymanAnimatedModel()
     : loaded(false), boneCount(0), meshCount(0), animationCount(0),
       globalInverseTransform(Matrix_Identity()), normalizationMatrix(Matrix_Identity()),
-      rootNodeIndex(-1) {}
+      rootNodeIndex(-1), rootMotionDistance(0.0f),
+      animationDurationSeconds(0.0f), recommendedWalkSpeed(0.0f) {}
 SalarymanAnimator::SalarymanAnimator() : model(NULL), currentTime(0.0f) {}
 
 namespace {
@@ -234,10 +235,11 @@ bool ReadFbxArrayProperty(const std::vector<unsigned char> &bytes,
 }
 
 
-bool LoadSalarymanDiffuseTexture(const char *filename, GLuint &texture_id,
-                                 GLuint &texture_unit) {
+bool LoadAnimatedDiffuseTexture(const char *debug_label, const char *filename,
+                                GLuint &texture_id, GLuint &texture_unit) {
   const std::string fullpath = ResolveExistingPath(filename);
-  printf("Loading salaryman diffuse texture \"%s\"... ", fullpath.c_str());
+  printf("Loading %s diffuse texture \"%s\"... ", debug_label,
+         fullpath.c_str());
 
   stbi_set_flip_vertically_on_load(true);
   int width = 0;
@@ -247,8 +249,8 @@ bool LoadSalarymanDiffuseTexture(const char *filename, GLuint &texture_id,
       stbi_load(fullpath.c_str(), &width, &height, &channels, 3);
   if (data == NULL) {
     fprintf(stderr,
-            "FAILED.\nERROR: Cannot open salaryman diffuse texture \"%s\".\n",
-            fullpath.c_str());
+            "FAILED.\nERROR: Cannot open %s diffuse texture \"%s\".\n",
+            debug_label, fullpath.c_str());
     texture_id = 0;
     texture_unit = 0;
     return false;
@@ -654,6 +656,21 @@ glm::mat4 InterpolateNodeTransform(const SalarymanAnimationChannel &channel,
          Matrix_Scale(scale.x, scale.y, scale.z);
 }
 
+bool IsSalarymanRootMotionChannel(const std::string &node_name);
+
+float ComputeHorizontalRootMotionDistance(
+    const SalarymanAnimationChannel &channel) {
+  if (!IsSalarymanRootMotionChannel(channel.nodeName) ||
+      channel.positions.size() <= 1)
+    return 0.0f;
+
+  const glm::vec3 first_position = channel.positions.front().value;
+  const glm::vec3 last_position = channel.positions.back().value;
+  const float delta_x = last_position.x - first_position.x;
+  const float delta_z = last_position.z - first_position.z;
+  return std::sqrt(delta_x * delta_x + delta_z * delta_z);
+}
+
 bool IsSalarymanRootMotionChannel(const std::string &node_name) {
   return node_name == "Hips" || node_name == "mixamorig7:Hips" ||
          node_name.find(":Hips") != std::string::npos;
@@ -873,11 +890,16 @@ bool LoadSalarymanStaticModel(StaticModel &model, const char *filename) {
   return true;
 }
 
-bool LoadSalarymanAnimatedModel(SalarymanAnimatedModel &model,
-                                const char *filename) {
+bool LoadTexturedAnimatedModel(SalarymanAnimatedModel &model,
+                               const char *filename,
+                               const char *body_diffuse_filename,
+                               const char *hair_diffuse_filename,
+                               const char *debug_label) {
   model = SalarymanAnimatedModel();
+  if (debug_label == NULL)
+    debug_label = "animated model";
   const std::string path = ResolveExistingPath(filename);
-  printf("Loading animated salaryman FBX \"%s\"...\n", path.c_str());
+  printf("Loading animated %s FBX \"%s\"...\n", debug_label, path.c_str());
 
   Assimp::Importer importer;
   const unsigned int flags =
@@ -887,8 +909,8 @@ bool LoadSalarymanAnimatedModel(SalarymanAnimatedModel &model,
 
   const aiScene *scene = importer.ReadFile(path, flags);
   if (scene == NULL || scene->mRootNode == NULL) {
-    fprintf(stderr, "ERROR: Assimp failed to load animated salaryman: %s\n",
-            importer.GetErrorString());
+    fprintf(stderr, "ERROR: Assimp failed to load animated %s: %s\n",
+            debug_label, importer.GetErrorString());
     return false;
   }
 
@@ -896,9 +918,9 @@ bool LoadSalarymanAnimatedModel(SalarymanAnimatedModel &model,
   model.animationCount = (int)scene->mNumAnimations;
   if (scene->mNumMeshes == 0 || scene->mNumAnimations == 0) {
     fprintf(stderr,
-            "ERROR: Animated salaryman requires mesh and animation data. mesh "
+            "ERROR: Animated %s requires mesh and animation data. mesh "
             "count=%u animation count=%u\n",
-            scene->mNumMeshes, scene->mNumAnimations);
+            debug_label, scene->mNumMeshes, scene->mNumAnimations);
     return false;
   }
 
@@ -906,21 +928,30 @@ bool LoadSalarymanAnimatedModel(SalarymanAnimatedModel &model,
   GLuint body_diffuse_texture_unit = 0;
   GLuint hair_diffuse_texture_id = 0;
   GLuint hair_diffuse_texture_unit = 0;
-  if (!LoadSalarymanDiffuseTexture("assets/salaryman/Ch33_1001_Diffuse.png",
-                                   body_diffuse_texture_id,
-                                   body_diffuse_texture_unit))
+  const bool wants_hair_texture =
+      hair_diffuse_filename != NULL && hair_diffuse_filename[0] != '\0';
+  bool hair_texture_loaded = false;
+  if (!LoadAnimatedDiffuseTexture(debug_label, body_diffuse_filename,
+                                  body_diffuse_texture_id,
+                                  body_diffuse_texture_unit))
     return false;
-  if (!LoadSalarymanDiffuseTexture("assets/salaryman/Ch33_1002_Diffuse.png",
-                                   hair_diffuse_texture_id,
-                                   hair_diffuse_texture_unit)) {
+  if (wants_hair_texture &&
+      LoadAnimatedDiffuseTexture(debug_label, hair_diffuse_filename,
+                                 hair_diffuse_texture_id,
+                                 hair_diffuse_texture_unit)) {
+    hair_texture_loaded = true;
+  } else {
     hair_diffuse_texture_id = body_diffuse_texture_id;
     hair_diffuse_texture_unit = body_diffuse_texture_unit;
-    printf("Salaryman animated FBX: hair diffuse texture unavailable, using "
-           "body diffuse fallback.\n");
+    if (wants_hair_texture) {
+      printf("%s animated FBX: hair diffuse texture unavailable, using "
+             "body diffuse fallback.\n",
+             debug_label);
+    }
   }
-  printf("Salaryman animated FBX: body diffuse textureId=%u unit=%u, hair "
+  printf("%s animated FBX: body diffuse textureId=%u unit=%u, hair "
          "diffuse textureId=%u unit=%u\n",
-         body_diffuse_texture_id, body_diffuse_texture_unit,
+         debug_label, body_diffuse_texture_id, body_diffuse_texture_unit,
          hair_diffuse_texture_id, hair_diffuse_texture_unit);
 
   aiMatrix4x4 root_inverse = scene->mRootNode->mTransformation;
@@ -987,9 +1018,9 @@ bool LoadSalarymanAnimatedModel(SalarymanAnimatedModel &model,
       if (bone_it == model.boneInfoMap.end()) {
         if (model.boneCount >= kMaxSalarymanBones) {
           fprintf(stderr,
-                  "ERROR: Animated salaryman has more bones than supported "
+                  "ERROR: Animated %s has more bones than supported "
                   "(%d).\n",
-                  kMaxSalarymanBones);
+                  debug_label, kMaxSalarymanBones);
           return false;
         }
 
@@ -1040,11 +1071,13 @@ bool LoadSalarymanAnimatedModel(SalarymanAnimatedModel &model,
         animated_mesh.materialName = material_name.C_Str();
     }
 
-    const bool use_hair_texture =
+    const bool mesh_requests_hair_texture =
         animated_mesh.name.find("Hair") != std::string::npos ||
         animated_mesh.name.find("hair") != std::string::npos ||
         animated_mesh.materialName.find("Hair") != std::string::npos ||
         animated_mesh.materialName.find("hair") != std::string::npos;
+    const bool use_hair_texture =
+        mesh_requests_hair_texture && hair_texture_loaded;
     animated_mesh.diffuse_texture_id =
         use_hair_texture ? hair_diffuse_texture_id : body_diffuse_texture_id;
     animated_mesh.diffuse_texture_unit = use_hair_texture
@@ -1091,12 +1124,13 @@ bool LoadSalarymanAnimatedModel(SalarymanAnimatedModel &model,
     glBindVertexArray(0);
 
     printf(
-        "Salaryman animated mesh texture: mesh=%s material=%s assigned=%s "
+        "%s animated mesh texture: mesh=%s material=%s assigned=%s "
         "textureId=%u unit=%u\n",
+        debug_label,
         animated_mesh.name.empty() ? "<unnamed>" : animated_mesh.name.c_str(),
         animated_mesh.materialName.empty() ? "<unnamed>"
                                            : animated_mesh.materialName.c_str(),
-        use_hair_texture ? "Ch33_1002_Diffuse.png" : "Ch33_1001_Diffuse.png",
+        use_hair_texture ? hair_diffuse_filename : body_diffuse_filename,
         animated_mesh.diffuse_texture_id, animated_mesh.diffuse_texture_unit);
 
     model.meshes.push_back(animated_mesh);
@@ -1104,11 +1138,17 @@ bool LoadSalarymanAnimatedModel(SalarymanAnimatedModel &model,
 
   if (!found_vertex || model.meshes.empty() || model.boneCount == 0) {
     fprintf(stderr,
-            "ERROR: Animated salaryman missing usable mesh or bone data. mesh "
+            "ERROR: Animated %s missing usable mesh or bone data. mesh "
             "count=%u bone count=%d animation count=%u\n",
-            scene->mNumMeshes, model.boneCount, scene->mNumAnimations);
+            debug_label, scene->mNumMeshes, model.boneCount,
+            scene->mNumAnimations);
     return false;
   }
+
+  const float raw_height = std::max(1.0f, raw_max.y - raw_min.y);
+  const float model_scale = 1.75f / raw_height;
+  const glm::vec3 origin((raw_min.x + raw_max.x) * 0.5f, raw_min.y,
+                         (raw_min.z + raw_max.z) * 0.5f);
 
   const aiAnimation *animation = scene->mAnimations[0];
   model.animation.duration = (float)animation->mDuration;
@@ -1117,7 +1157,8 @@ bool LoadSalarymanAnimatedModel(SalarymanAnimatedModel &model,
                                        : 25.0f;
   if (model.animation.duration <= 0.0f) {
     fprintf(stderr,
-            "ERROR: Animated salaryman animation has invalid duration.\n");
+            "ERROR: Animated %s animation has invalid duration.\n",
+            debug_label);
     return false;
   }
 
@@ -1151,6 +1192,11 @@ bool LoadSalarymanAnimatedModel(SalarymanAnimatedModel &model,
       channel.scales.push_back(key);
     }
 
+    if (IsSalarymanRootMotionChannel(channel.nodeName)) {
+      model.rootMotionDistance =
+          ComputeHorizontalRootMotionDistance(channel) * model_scale;
+    }
+
     StripSalarymanHorizontalRootMotion(channel);
 
     const int stored_index = (int)model.animation.channels.size();
@@ -1159,14 +1205,17 @@ bool LoadSalarymanAnimatedModel(SalarymanAnimatedModel &model,
   }
 
   if (model.animation.channels.empty()) {
-    fprintf(stderr, "ERROR: Animated salaryman has no animation channels.\n");
+    fprintf(stderr, "ERROR: Animated %s has no animation channels.\n",
+            debug_label);
     return false;
   }
 
-  const float raw_height = std::max(1.0f, raw_max.y - raw_min.y);
-  const float model_scale = 1.75f / raw_height;
-  const glm::vec3 origin((raw_min.x + raw_max.x) * 0.5f, raw_min.y,
-                         (raw_min.z + raw_max.z) * 0.5f);
+  model.animationDurationSeconds =
+      model.animation.duration / model.animation.ticksPerSecond;
+  if (model.animationDurationSeconds > 0.0001f)
+    model.recommendedWalkSpeed =
+        model.rootMotionDistance / model.animationDurationSeconds;
+
   model.normalizationMatrix =
       Matrix_Scale(model_scale, model_scale, model_scale) *
       Matrix_Translate(-origin.x, -origin.y, -origin.z);
@@ -1175,14 +1224,26 @@ bool LoadSalarymanAnimatedModel(SalarymanAnimatedModel &model,
   CalculateSalarymanBoneTransformsAtTime(model, 0.0f);
   model.loaded = true;
 
-  printf("Salaryman animated FBX: mesh count=%d\n", model.meshCount);
-  printf("Salaryman animated FBX: bone count=%d\n", model.boneCount);
-  printf("Salaryman animated FBX: animation count=%d\n", model.animationCount);
-  printf("Salaryman animated FBX: animation duration=%.3f\n",
+  printf("%s animated FBX: mesh count=%d\n", debug_label, model.meshCount);
+  printf("%s animated FBX: bone count=%d\n", debug_label, model.boneCount);
+  printf("%s animated FBX: animation count=%d\n", debug_label,
+         model.animationCount);
+  printf("%s animated FBX: animation duration=%.3f\n", debug_label,
          model.animation.duration);
-  printf("Salaryman animated FBX: ticks per second=%.3f\n",
+  printf("%s animated FBX: ticks per second=%.3f\n", debug_label,
          model.animation.ticksPerSecond);
+  printf("%s animated FBX: normalized root stride=%.3f, cycle seconds=%.3f, "
+         "recommended walk speed=%.3f\n",
+         debug_label, model.rootMotionDistance,
+         model.animationDurationSeconds, model.recommendedWalkSpeed);
   return true;
+}
+
+bool LoadSalarymanAnimatedModel(SalarymanAnimatedModel &model,
+                                const char *filename) {
+  return LoadTexturedAnimatedModel(
+      model, filename, "assets/salaryman/Ch33_1001_Diffuse.png",
+      "assets/salaryman/Ch33_1002_Diffuse.png", "salaryman");
 }
 
 void UpdateSalarymanAnimation(SalarymanAnimator &animator, float delta_time) {

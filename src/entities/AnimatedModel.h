@@ -46,11 +46,19 @@ struct SalarymanAnimatedModel {
   std::vector<SalarymanAnimatedNode> nodes;
   int rootNodeIndex;
   std::vector<glm::mat4> finalBoneMatrices;
+  float rootMotionDistance;
+  float animationDurationSeconds;
+  float recommendedWalkSpeed;
   SalarymanAnimatedModel();
 };
 struct SalarymanAnimator { SalarymanAnimatedModel *model; float currentTime; SalarymanAnimator(); };
 
 bool LoadSalarymanStaticModel(StaticModel &model, const char *filename);
+bool LoadTexturedAnimatedModel(SalarymanAnimatedModel &model,
+                               const char *filename,
+                               const char *body_diffuse_filename,
+                               const char *hair_diffuse_filename,
+                               const char *debug_label);
 bool LoadSalarymanAnimatedModel(SalarymanAnimatedModel &model, const char *filename);
 void UpdateSalarymanAnimation(SalarymanAnimator &animator, float delta_time);
 void DrawAnimatedModel(const SalarymanAnimatedModel &model);

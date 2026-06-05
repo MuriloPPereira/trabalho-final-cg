@@ -14,6 +14,9 @@ struct PlayerCharacter {
   glm::vec3 forward;
   float yaw;
   float speed;
+  float baseWalkSpeed;
+  float animationPlaybackScale;
+  float locomotionScale;
   StaticModel *model;
   SalarymanAnimatedModel *animatedModel;
   SalarymanAnimator *animator;
