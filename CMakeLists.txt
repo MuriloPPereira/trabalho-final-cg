@@ -7,6 +7,20 @@
 # ser compilados.
 set(SOURCES
   src/main.cpp
+  src/engine/Application.cpp
+  src/engine/Camera.cpp
+  src/engine/DebugText.cpp
+  src/engine/Renderer.cpp
+  src/engine/Shader.cpp
+  src/engine/Texture.cpp
+  src/entities/AnimatedModel.cpp
+  src/entities/NPC.cpp
+  src/entities/Player.cpp
+  src/rendering/Mesh.cpp
+  src/rendering/WorldRenderer.cpp
+  src/utils/FileUtils.cpp
+  src/world/Corridor.cpp
+  src/world/TeleportSystem.cpp
   src/correcao.cpp
   src/textrendering.cpp
   src/tiny_obj_loader.cpp
@@ -19,7 +33,7 @@ cmake_minimum_required(VERSION 3.10.0)
 
 project(LAB_FCG VERSION 1.0.0)
 
-set(CMAKE_CXX_STANDARD          11)
+set(CMAKE_CXX_STANDARD          17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS        OFF)
 
@@ -58,7 +72,10 @@ endforeach()
 
 add_executable(${EXECUTABLE_NAME} ${SOURCES})
 
-target_include_directories(${EXECUTABLE_NAME} BEFORE PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_include_directories(${EXECUTABLE_NAME} BEFORE PRIVATE
+  ${PROJECT_SOURCE_DIR}/include
+  ${PROJECT_SOURCE_DIR}/src
+)
 
 set(LOCAL_MSYS2_UCRT_PREFIX "${PROJECT_SOURCE_DIR}/third_party/msys2-ucrt64/ucrt64")
 if(EXISTS "${LOCAL_MSYS2_UCRT_PREFIX}/lib/cmake/assimp-6.0/assimpConfig.cmake")
