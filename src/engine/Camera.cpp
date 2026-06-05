@@ -55,8 +55,8 @@ glm::vec4 ComputeCameraViewVector() {
   const glm::vec3 target =
       g_PlayerCharacter.position + glm::vec3(0.0f, 1.35f, 0.0f);
   glm::vec3 direction =
-      target - glm::vec3(g_CameraPosition.x, g_CameraPosition.y,
-                         g_CameraPosition.z);
+      target -
+      glm::vec3(g_CameraPosition.x, g_CameraPosition.y, g_CameraPosition.z);
   if (glm::length(direction) < 0.0001f)
     return ComputeCameraFrontVector();
 
@@ -65,17 +65,12 @@ glm::vec4 ComputeCameraViewVector() {
 }
 
 void UpdateThirdPersonCameraFromPlayer() {
-  glm::vec3 front = g_PlayerCharacter.forward;
-  front.y = 0.0f;
-  if (glm::length(front) < 0.0001f)
-    front = glm::vec3(0.0f, 0.0f, -1.0f);
-  else
-    front = glm::normalize(front);
+  glm::vec4 camera_front_4 = ComputeCameraFrontVector();
+  glm::vec3 camera_front(camera_front_4.x, camera_front_4.y, camera_front_4.z);
 
   const glm::vec3 target =
       g_PlayerCharacter.position + glm::vec3(0.0f, 1.35f, 0.0f);
-  glm::vec3 desired_camera =
-      target - front * 4.5f + glm::vec3(0.0f, 0.85f, 0.0f);
+  glm::vec3 desired_camera = target - camera_front * 4.5f;
   desired_camera.y =
       std::max(0.65f, std::min(kCorridorHeight - 0.20f, desired_camera.y));
 
@@ -97,27 +92,24 @@ void UpdateCameraFromInput(GLFWwindow *window, float delta_time) {
   if (g_UseThirdPersonCamera) {
     g_PlayerCharacter.locomotionScale = sprint_multiplier;
 
-    const float turn_speed = 2.6f;
-    float turn_input = 0.0f;
-    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-      turn_input -= 1.0f;
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-      turn_input += 1.0f;
-    g_PlayerCharacter.yaw += turn_input * turn_speed * delta_time;
-
-    glm::vec3 front(std::sin(g_PlayerCharacter.yaw), 0.0f,
-                    -std::cos(g_PlayerCharacter.yaw));
-    if (glm::length(front) < 0.0001f)
-      front = glm::vec3(0.0f, 0.0f, -1.0f);
+    glm::vec4 cam_front_4 = ComputeCameraFrontVector();
+    glm::vec3 cam_front(cam_front_4.x, 0.0f, cam_front_4.z);
+    if (glm::length(cam_front) < 0.0001f)
+      cam_front = glm::vec3(0.0f, 0.0f, -1.0f);
     else
-      front = glm::normalize(front);
-    g_PlayerCharacter.forward = front;
+      cam_front = glm::normalize(cam_front);
+
+    glm::vec3 cam_right = glm::normalize(glm::cross(cam_front, glm::vec3(0.0f, 1.0f, 0.0f)));
 
     glm::vec3 movement(0.0f, 0.0f, 0.0f);
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-      movement += front;
+      movement += cam_front;
     if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-      movement -= front;
+      movement -= cam_front;
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+      movement -= cam_right;
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+      movement += cam_right;
 
     const bool input_requests_movement = (glm::length(movement) > 0.0001f);
     const glm::vec3 previous_player_position = g_PlayerCharacter.position;
@@ -128,7 +120,8 @@ void UpdateCameraFromInput(GLFWwindow *window, float delta_time) {
     }
 
     const float player_radius = 0.15f;
-    const CanonicalCorridorLayout corridor_layout = GetCanonicalCorridorLayout();
+    const CanonicalCorridorLayout corridor_layout =
+        GetCanonicalCorridorLayout();
     CollisionResult col = UpdatePlayerCollision(
         glm::vec2(g_PlayerCharacter.position.x, g_PlayerCharacter.position.z),
         player_radius, corridor_layout, kCorridorHalfWidth, kCorridorZ1);
@@ -146,9 +139,9 @@ void UpdateCameraFromInput(GLFWwindow *window, float delta_time) {
     g_PlayerCharacter.moving = (glm::length(actual_movement) > 0.0005f);
     if (g_PlayerCharacter.moving) {
       actual_movement = glm::normalize(actual_movement);
+      // O personagem agora sempre rotaciona para olhar para a direção do movimento real
       g_PlayerCharacter.forward = actual_movement;
-      g_PlayerCharacter.yaw =
-          std::atan2(actual_movement.x, -actual_movement.z);
+      g_PlayerCharacter.yaw = std::atan2(actual_movement.x, -actual_movement.z);
     }
 
     UpdatePlayerCharacterAnimation(g_PlayerCharacter, delta_time);
@@ -367,9 +360,8 @@ void KeyCallback(GLFWwindow *window, int key, int scancode, int action,
       UpdateThirdPersonCameraFromPlayer();
       fprintf(stdout, "Camera mode: third person\n");
     } else {
-      g_CameraPosition =
-          glm::vec4(g_PlayerCharacter.position.x, 1.6f,
-                    g_PlayerCharacter.position.z, 1.0f);
+      g_CameraPosition = glm::vec4(g_PlayerCharacter.position.x, 1.6f,
+                                   g_PlayerCharacter.position.z, 1.0f);
       g_PlayerCharacter.moving = false;
       fprintf(stdout, "Camera mode: first person\n");
     }
