@@ -21,7 +21,6 @@
 #include <cstdlib>
 #include <cstring>
 
-
 // Headers abaixo são específicos de C++
 #include <algorithm>
 #include <cstddef>
@@ -35,11 +34,9 @@
 #include <string>
 #include <vector>
 
-
 // Headers das bibliotecas OpenGL
 #include <glad/glad.h>  // Criação de contexto OpenGL 3.3
 #include <GLFW/glfw3.h> // Criação de janelas do sistema operacional
-
 
 // Headers da biblioteca GLM: criação de matrizes e vetores.
 #include <glm/geometric.hpp>
@@ -50,11 +47,9 @@
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
-
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
-
 
 // Headers da biblioteca para carregar modelos obj
 #include <tiny_obj_loader.h>
@@ -65,7 +60,7 @@
 #include "collisions.h"
 #include "matrices.h"
 #include "utils.h"
-
+#include <iostream>
 
 // Estrutura que representa um modelo geométrico carregado a partir de um
 // arquivo ".obj". Veja https://en.wikipedia.org/wiki/Wavefront_.obj_file .
@@ -149,8 +144,8 @@ void BuildTrianglesAndAddToVirtualScene(
                  // triângulos para renderização
 void BuildCorridorAndAddToVirtualScene(); // Constrói um corredor procedural
                                           // simples (chão, teto e paredes)
-void BuildCornerAndAddToVirtualScene(); // Constrói duas quinas procedurais 4x4
-                                        // (esquerda e direita)
+void BuildCornerAndAddToVirtualScene();  // Constrói duas quinas procedurais 4x4
+                                         // (esquerda e direita)
 void BuildPostersAndAddToVirtualScene(); // Constrói quads para os posters na
                                          // parede esquerda
 void ComputeNormals(
@@ -467,6 +462,8 @@ struct CorridorInstance {
   CorridorContent content;
 };
 
+int g_CurrentExitLevel = 0;
+
 int g_CurrentCorridorSequenceId = 0;
 int g_NextCorridorSequenceId = 1;
 int g_LastEnteredPhysicalSide = 0;
@@ -493,9 +490,11 @@ int GetPosterTextureIndex(int corridor_id, int poster_slot) {
 }
 
 CorridorContent GenerateCorridorContent(int corridor_id,
-                                        const glm::vec3 &content_forward);
+                                        const glm::vec3 &content_forward,
+                                        bool has_anomaly);
 CorridorInstance CreateNewCorridorInstance(int logical_id,
-                                           const glm::vec3 &content_forward);
+                                           const glm::vec3 &content_forward,
+                                           bool has_anomaly);
 
 CorridorState MakeCorridorState(int id) {
   CorridorState state;
@@ -505,17 +504,25 @@ CorridorState MakeCorridorState(int id) {
 }
 
 void RefreshCandidateCorridorStates() {
-  g_NegativeCandidateCorridorInstance = CreateNewCorridorInstance(
-      g_NextCorridorSequenceId, glm::vec3(0.0f, 0.0f, +1.0f));
-  g_PositiveCandidateCorridorInstance = CreateNewCorridorInstance(
-      g_NextCorridorSequenceId, glm::vec3(0.0f, 0.0f, -1.0f));
-}
 
+  bool next_has_anomaly = (rand() % 2 == 0);
+
+  g_NegativeCandidateCorridorInstance = CreateNewCorridorInstance(
+      g_NextCorridorSequenceId, glm::vec3(0.0f, 0.0f, +1.0f), next_has_anomaly);
+  g_PositiveCandidateCorridorInstance = CreateNewCorridorInstance(
+      g_NextCorridorSequenceId, glm::vec3(0.0f, 0.0f, -1.0f), next_has_anomaly);
+
+  g_NegativeCandidateCorridorInstance.state.has_anomaly = next_has_anomaly;
+  g_NegativeCandidateCorridorInstance.content.hasAnomaly = next_has_anomaly;
+
+  g_PositiveCandidateCorridorInstance.state.has_anomaly = next_has_anomaly;
+  g_PositiveCandidateCorridorInstance.content.hasAnomaly = next_has_anomaly;
+}
 void InitializeCorridorLifecycle() {
   g_CurrentCorridorSequenceId = 0;
   g_NextCorridorSequenceId = 1;
   g_CurrentCorridorInstance = CreateNewCorridorInstance(
-      g_CurrentCorridorSequenceId, glm::vec3(0.0f, 0.0f, -1.0f));
+      g_CurrentCorridorSequenceId, glm::vec3(0.0f, 0.0f, -1.0f), false);
   RefreshCandidateCorridorStates();
 }
 
@@ -523,10 +530,40 @@ void ActivateNewLogicalCorridor(int physical_side) {
   if (physical_side == 0)
     return;
 
+
+  float player_moved_z = -(float)physical_side;
+
+  // O jogador seguiu em frente se ele andou na mesma direção que a frente do corredor aponta
+  bool went_forward = (player_moved_z == g_CurrentCorridorInstance.content.frame.contentForward.z);
+  bool had_anomaly = g_CurrentCorridorInstance.state.has_anomaly;
+
+  bool is_correct =
+      (went_forward && !had_anomaly) || (!went_forward && had_anomaly);
+
+  if (is_correct) {
+    g_CurrentExitLevel++;
+    printf("\n--- CORRECT -> EXIT LEVEL: %d ---\n\n", g_CurrentExitLevel);
+  } else {
+    g_CurrentExitLevel = 0;
+    printf("\n--- INCORRECT -> EXIT LEVEL: %d ---\n\n", g_CurrentExitLevel);
+  }
+
+  if (g_CurrentExitLevel >= 8)
+    printf("\n*** YOU WIN! You reached Exit 8! ***\n\n");
+
+  fflush(stdout);
+
   g_LastEnteredPhysicalSide = physical_side;
   g_CurrentCorridorInstance = (physical_side < 0)
                                   ? g_NegativeCandidateCorridorInstance
                                   : g_PositiveCandidateCorridorInstance;
+
+  if (g_CurrentCorridorInstance.state.has_anomaly) {
+    printf("\n[SPOILER] ANOMALIA NO CORREDOR ATUAL (POSTERS IDENTICOS)\n");
+  } else {
+    printf("\n[SPOILER] CORREDOR NORMAL\n");
+  }
+  fflush(stdout);
   g_CurrentCorridorSequenceId = g_CurrentCorridorInstance.state.id;
   g_NextCorridorSequenceId = g_CurrentCorridorSequenceId + 1;
   RefreshCandidateCorridorStates();
@@ -589,20 +626,20 @@ const float kWallTextureTileSize = 2.0f;
 const char *kPosterNames[kPosterCount] = {"poster_0", "poster_1", "poster_2",
                                           "poster_3"};
 
-CanonicalCorridorLayout GetCanonicalCorridorLayout()
-{
-    CanonicalCorridorLayout layout;
-    layout.connector_length = kConnectorLength;
-    layout.turn_z0 = kCorridorZ1;
-    layout.turn_z1 = layout.turn_z0 - kCornerLength;
-    layout.connector_center_z = layout.turn_z0 - 0.5f * kCornerLength;
-    layout.connector_start_x = -kCorridorHalfWidth;
-    layout.connector_end_x = layout.connector_start_x - layout.connector_length;
-    layout.exit_turn_x = layout.connector_end_x - kCorridorHalfWidth;
-    layout.corridor2_offset_x = layout.exit_turn_x;
-    layout.second_corridor_z_offset = layout.turn_z1;
-    layout.block_offset = glm::vec2(layout.corridor2_offset_x, layout.second_corridor_z_offset);
-    return layout;
+CanonicalCorridorLayout GetCanonicalCorridorLayout() {
+  CanonicalCorridorLayout layout;
+  layout.connector_length = kConnectorLength;
+  layout.turn_z0 = kCorridorZ1;
+  layout.turn_z1 = layout.turn_z0 - kCornerLength;
+  layout.connector_center_z = layout.turn_z0 - 0.5f * kCornerLength;
+  layout.connector_start_x = -kCorridorHalfWidth;
+  layout.connector_end_x = layout.connector_start_x - layout.connector_length;
+  layout.exit_turn_x = layout.connector_end_x - kCorridorHalfWidth;
+  layout.corridor2_offset_x = layout.exit_turn_x;
+  layout.second_corridor_z_offset = layout.turn_z1;
+  layout.block_offset =
+      glm::vec2(layout.corridor2_offset_x, layout.second_corridor_z_offset);
+  return layout;
 }
 
 glm::vec3 TransformPoint(const glm::mat4 &transform, const glm::vec3 &point) {
@@ -653,7 +690,8 @@ MakeCorridorContentFrame(int logical_corridor_id,
 }
 
 CorridorContent GenerateCorridorContent(int corridor_id,
-                                        const glm::vec3 &content_forward) {
+                                        const glm::vec3 &content_forward,
+                                        bool has_anomaly) {
   const float poster_center_y = 1.6f;
   const float poster_offset = 0.02f;
   const float poster_wall_offset = kCorridorHalfWidth - poster_offset;
@@ -674,7 +712,11 @@ CorridorContent GenerateCorridorContent(int corridor_id,
 
     PosterSlotLayout poster;
     poster.slot = slot;
-    poster.textureIndex = GetPosterTextureIndex(corridor_id, slot);
+    if (has_anomaly) {
+      poster.textureIndex = 0;
+    } else {
+      poster.textureIndex = GetPosterTextureIndex(corridor_id, slot);
+    }
     poster.position = frame.contentOrigin -
                       frame.contentRight * poster_wall_offset +
                       frame.contentForward * poster_distance;
@@ -716,11 +758,13 @@ CorridorContent GenerateCorridorContent(int corridor_id,
 }
 
 CorridorInstance CreateNewCorridorInstance(int logical_id,
-                                           const glm::vec3 &content_forward) {
+                                           const glm::vec3 &content_forward,
+                                           bool has_anomaly) {
   CorridorInstance instance;
   instance.state = MakeCorridorState(logical_id);
-  instance.content = GenerateCorridorContent(logical_id, content_forward);
-  instance.state.has_anomaly = instance.content.hasAnomaly;
+  instance.state.has_anomaly = has_anomaly;
+  instance.content =
+      GenerateCorridorContent(logical_id, content_forward, has_anomaly);
   return instance;
 }
 
@@ -944,6 +988,9 @@ GLuint g_NumLoadedTextures = 0;
 int main(int argc, char *argv[]) {
   // Inicializamos a biblioteca GLFW, utilizada para criar uma janela do
   // sistema operacional, onde poderemos renderizar com OpenGL.
+
+  std::srand(time(NULL));
+
   int success = glfwInit();
   if (!success) {
     fprintf(stderr, "ERROR: glfwInit() failed.\n");
@@ -997,9 +1044,9 @@ int main(int argc, char *argv[]) {
   // redimensionada, por consequência alterando o tamanho do "framebuffer"
   // (região de memória onde são armazenados os pixels da imagem).
   glfwSetFramebufferSizeCallback(window, FramebufferSizeCallback);
-  FramebufferSizeCallback(
-      window, 800,
-      600); // Forçamos a chamada do callback acima, para definir g_ScreenRatio.
+  FramebufferSizeCallback(window, 800,
+                          600); // Forçamos a chamada do callback acima, para
+                                // definir g_ScreenRatio.
   glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
   // Imprimimos no terminal informações sobre a GPU do sistema
@@ -1017,15 +1064,16 @@ int main(int argc, char *argv[]) {
   //
   LoadShadersFromFiles();
 
-  // Carregamos imagens para serem utilizadas como textura (caminhos relativos a
-  // data/)
-  LoadTextureImage("wall.png", GL_MIRRORED_REPEAT, GL_MIRRORED_REPEAT);    // 0
-  LoadTextureImage("floor.jpg", GL_MIRRORED_REPEAT, GL_MIRRORED_REPEAT);   // 1
-  LoadTextureImage("ceiling.jpg", GL_MIRRORED_REPEAT, GL_MIRRORED_REPEAT); // 2
-  LoadTextureImage("poster1.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);     // 3
-  LoadTextureImage("poster2.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);     // 4
-  LoadTextureImage("poster3.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);     // 5
-  LoadTextureImage("poster4.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);     // 6
+  // Carregamos imagens para serem utilizadas como textura (caminhos relativos
+  // a data/)
+  LoadTextureImage("wall.png", GL_MIRRORED_REPEAT, GL_MIRRORED_REPEAT);  // 0
+  LoadTextureImage("floor.jpg", GL_MIRRORED_REPEAT, GL_MIRRORED_REPEAT); // 1
+  LoadTextureImage("ceiling.jpg", GL_MIRRORED_REPEAT,
+                   GL_MIRRORED_REPEAT);                                // 2
+  LoadTextureImage("poster1.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // 3
+  LoadTextureImage("poster2.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // 4
+  LoadTextureImage("poster3.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // 5
+  LoadTextureImage("poster4.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // 6
   const GLuint kSalarymanTextureUnit = g_NumLoadedTextures;
   CreateSolidColorTexture(178, 168, 150); // 7
 
@@ -1187,7 +1235,8 @@ int main(int argc, char *argv[]) {
   glCullFace(GL_BACK);
   glFrontFace(GL_CCW);
 
-  // Ficamos em um loop infinito, renderizando, até que o usuário feche a janela
+  // Ficamos em um loop infinito, renderizando, até que o usuário feche a
+  // janela
   float last_frame_time = (float)glfwGetTime();
   while (!glfwWindowShouldClose(window)) {
     float current_frame_time = (float)glfwGetTime();
@@ -1200,7 +1249,8 @@ int main(int argc, char *argv[]) {
     // Definimos a cor do "fundo" do framebuffer como branco.  Tal cor é
     // definida como coeficientes RGBA: Red, Green, Blue, Alpha; isto é:
     // Vermelho, Verde, Azul, Alpha (valor de transparência).
-    // Conversaremos sobre sistemas de cores nas aulas de Modelos de Iluminação.
+    // Conversaremos sobre sistemas de cores nas aulas de Modelos de
+    // Iluminação.
     //
     //           R     G     B     A
     glClearColor(0.07f, 0.07f, 0.08f, 1.0f);
@@ -1221,8 +1271,8 @@ int main(int argc, char *argv[]) {
     UpdateSalarymanNPC(g_SalarymanNPC, delta_time, camera_position_c);
 
     // Computamos a matriz "View" utilizando os parâmetros da câmera para
-    // definir o sistema de coordenadas da câmera.  Veja slides 2-14, 184-190 e
-    // 236-242 do documento Aula_08_Sistemas_de_Coordenadas.pdf.
+    // definir o sistema de coordenadas da câmera.  Veja slides 2-14, 184-190
+    // e 236-242 do documento Aula_08_Sistemas_de_Coordenadas.pdf.
     glm::mat4 view = Matrix_Camera_View(camera_position_c, camera_view_vector,
                                         camera_up_vector);
 
@@ -1238,8 +1288,8 @@ int main(int argc, char *argv[]) {
 
     if (g_UsePerspectiveProjection) {
       // Projeção Perspectiva.
-      // Para definição do field of view (FOV), veja slides 205-215 do documento
-      // Aula_09_Projecoes.pdf.
+      // Para definição do field of view (FOV), veja slides 205-215 do
+      // documento Aula_09_Projecoes.pdf.
       float field_of_view = 3.141592 / 3.0f;
       projection =
           Matrix_Perspective(field_of_view, g_ScreenRatio, nearplane, farplane);
@@ -1388,7 +1438,8 @@ int main(int argc, char *argv[]) {
                   "corner_left_wall_back", "corner_left_wall_right",
                   corner1_start, false, true);
 
-      // Conector curto (eixo -X): base_transform * T(...) * R_y(+90°) * S(...).
+      // Conector curto (eixo -X): base_transform * T(...) * R_y(+90°) *
+      // S(...).
       m = base_transform *
           Matrix_Translate(connector_start_x, 0.0f, connector_center_z) *
           Matrix_Rotate_Y(3.141592f / 2.0f) *
@@ -1554,8 +1605,8 @@ void DrawVirtualObject(const char *object_name) {
 
   // "Ligamos" o VAO. Informamos que queremos utilizar os atributos de
   // vértices apontados pelo VAO criado pela função
-  // BuildTrianglesAndAddToVirtualScene(). Veja comentários detalhados dentro da
-  // definição de BuildTrianglesAndAddToVirtualScene().
+  // BuildTrianglesAndAddToVirtualScene(). Veja comentários detalhados dentro
+  // da definição de BuildTrianglesAndAddToVirtualScene().
   glBindVertexArray(g_VirtualScene[object_name].vertex_array_object_id);
 
   // Setamos as variáveis "bbox_min" e "bbox_max" do fragment shader
@@ -1567,8 +1618,8 @@ void DrawVirtualObject(const char *object_name) {
 
   // Pedimos para a GPU rasterizar os vértices dos eixos XYZ
   // apontados pelo VAO como linhas. Veja a definição de
-  // g_VirtualScene[""] dentro da função BuildTrianglesAndAddToVirtualScene(), e
-  // veja a documentação da função glDrawElements() em
+  // g_VirtualScene[""] dentro da função BuildTrianglesAndAddToVirtualScene(),
+  // e veja a documentação da função glDrawElements() em
   // http://docs.gl/gl3/glDrawElements.
   glDrawElements(
       g_VirtualScene[object_name].rendering_mode,
@@ -2587,10 +2638,10 @@ bool LoadSalarymanAnimatedModel(SalarymanAnimatedModel &model,
           model.boneInfoMap.find(bone_name);
       if (bone_it == model.boneInfoMap.end()) {
         if (model.boneCount >= kMaxSalarymanBones) {
-          fprintf(
-              stderr,
-              "ERROR: Animated salaryman has more bones than supported (%d).\n",
-              kMaxSalarymanBones);
+          fprintf(stderr,
+                  "ERROR: Animated salaryman has more bones than supported "
+                  "(%d).\n",
+                  kMaxSalarymanBones);
           return false;
         }
 
@@ -2892,11 +2943,11 @@ void UpdateSalarymanNPC(SalarymanNPC &salaryman, float delta_time,
 
   if (corridor_progress < -2.0f) {
     if (kCorridorDebugLogsEnabled) {
-      printf(
-          "Salaryman despawn: reason=behind_spawn corridorId=%d progress=%.2f "
-          "playerDistance=%.2f position=(%.2f, %.2f, %.2f), active=false\n",
-          salaryman.corridorId, corridor_progress, player_distance,
-          salaryman.position.x, salaryman.position.y, salaryman.position.z);
+      printf("Salaryman despawn: reason=behind_spawn corridorId=%d "
+             "progress=%.2f "
+             "playerDistance=%.2f position=(%.2f, %.2f, %.2f), active=false\n",
+             salaryman.corridorId, corridor_progress, player_distance,
+             salaryman.position.x, salaryman.position.y, salaryman.position.z);
     }
     salaryman.active = false;
   } else if (corridor_progress > salaryman.corridorLength + 2.0f) {
@@ -3174,8 +3225,8 @@ void LoadShadersFromFiles() {
 // Função que pega a matriz M e guarda a mesma no topo da pilha
 void PushMatrix(glm::mat4 M) { g_MatrixStack.push(M); }
 
-// Função que remove a matriz atualmente no topo da pilha e armazena a mesma na
-// variável M
+// Função que remove a matriz atualmente no topo da pilha e armazena a mesma
+// na variável M
 void PopMatrix(glm::mat4 &M) {
   if (g_MatrixStack.empty()) {
     M = Matrix_Identity();
@@ -3583,12 +3634,12 @@ void BuildCornerAndAddToVirtualScene() {
                kWallTextureTileSize);
   };
 
-  // Quina 1 (Vira à esquerda): Aberta na frente (para o Corredor 1) e aberta na
-  // esquerda (para o Conector). Tem parede no fundo e na direita.
+  // Quina 1 (Vira à esquerda): Aberta na frente (para o Corredor 1) e aberta
+  // na esquerda (para o Conector). Tem parede no fundo e na direita.
   build_corner_parts("corner_left", false, true, false, true);
 
-  // Quina 2 (Vira à direita): Aberta na direita (vindo do Conector) e aberta no
-  // fundo (para o Corredor 2). Tem parede na frente e na esquerda.
+  // Quina 2 (Vira à direita): Aberta na direita (vindo do Conector) e aberta
+  // no fundo (para o Corredor 2). Tem parede na frente e na esquerda.
   build_corner_parts("corner_right", true, false, true, false);
 }
 
@@ -3669,8 +3720,8 @@ void BuildTrianglesAndAddToVirtualScene(ObjModel *model) {
     theobject.name = model->shapes[shape].name;
     theobject.first_index = first_index;                  // Primeiro índice
     theobject.num_indices = last_index - first_index + 1; // Número de indices
-    theobject.rendering_mode = GL_TRIANGLES; // Índices correspondem ao tipo de
-                                             // rasterização GL_TRIANGLES.
+    theobject.rendering_mode = GL_TRIANGLES; // Índices correspondem ao tipo
+                                             // de rasterização GL_TRIANGLES.
     theobject.vertex_array_object_id = vertex_array_object_id;
 
     theobject.bbox_min = bbox_min;
@@ -3772,8 +3823,8 @@ GLuint LoadShader_Fragment(const char *filename) {
   return fragment_shader_id;
 }
 
-// Função auxilar, utilizada pelas duas funções acima. Carrega código de GPU de
-// um arquivo GLSL e faz sua compilação.
+// Função auxilar, utilizada pelas duas funções acima. Carrega código de GPU
+// de um arquivo GLSL e faz sua compilação.
 void LoadShader(const char *filename, GLuint shader_id) {
   // Lemos o arquivo de texto indicado pela variável "filename"
   // e colocamos seu conteúdo em memória, apontado pela variável
@@ -3911,24 +3962,25 @@ void UpdateCameraFromInput(GLFWwindow *window, float delta_time) {
   if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
     g_CameraPosition += right * step;
 
-g_CameraPosition.y = 1.6f;
+  g_CameraPosition.y = 1.6f;
 
-const float player_radius = 0.15f;
-const CanonicalCorridorLayout corridor_layout = GetCanonicalCorridorLayout();
+  const float player_radius = 0.15f;
+  const CanonicalCorridorLayout corridor_layout = GetCanonicalCorridorLayout();
 
-glm::vec2 p_world_raw(g_CameraPosition.x, g_CameraPosition.z);
-CollisionResult col = UpdatePlayerCollision(p_world_raw, player_radius, corridor_layout, kCorridorHalfWidth, kCorridorZ1);
+  glm::vec2 p_world_raw(g_CameraPosition.x, g_CameraPosition.z);
+  CollisionResult col =
+      UpdatePlayerCollision(p_world_raw, player_radius, corridor_layout,
+                            kCorridorHalfWidth, kCorridorZ1);
 
-// Repopula as variáveis no escopo para o restante da função não quebrar
-glm::vec2 p_world = col.p_world;
-int block_index = col.block_index;
-bool inside_straight_corridor = col.inside_straight_corridor;
-bool inside_shared_connector = col.inside_shared_connector;
-bool inside_entry_turn = col.inside_entry_turn;
-bool inside_exit_turn = col.inside_exit_turn;
-bool inside_connector_turn = col.inside_connector_turn;
-float connector_progress = col.connector_progress;
-
+  // Repopula as variáveis no escopo para o restante da função não quebrar
+  glm::vec2 p_world = col.p_world;
+  int block_index = col.block_index;
+  bool inside_straight_corridor = col.inside_straight_corridor;
+  bool inside_shared_connector = col.inside_shared_connector;
+  bool inside_entry_turn = col.inside_entry_turn;
+  bool inside_exit_turn = col.inside_exit_turn;
+  bool inside_connector_turn = col.inside_connector_turn;
+  float connector_progress = col.connector_progress;
 
   const int player_section = inside_connector_turn ? 1 : 0;
   if (player_section != g_LastPlayerSection) {
@@ -4009,8 +4061,8 @@ void FramebufferSizeCallback(GLFWwindow *window, int width, int height) {
   // Atualizamos também a razão que define a proporção da janela (largura /
   // altura), a qual será utilizada na definição das matrizes de projeção,
   // tal que não ocorra distorções durante o processo de "Screen Mapping"
-  // acima, quando NDC é mapeado para coordenadas de pixels. Veja slides 205-215
-  // do documento Aula_09_Projecoes.pdf.
+  // acima, quando NDC é mapeado para coordenadas de pixels. Veja slides
+  // 205-215 do documento Aula_09_Projecoes.pdf.
   //
   // O cast para float é necessário pois números inteiros são arredondados ao
   // serem divididos!
@@ -4022,7 +4074,8 @@ void FramebufferSizeCallback(GLFWwindow *window, int width, int height) {
 // de tempo. Utilizadas no callback CursorPosCallback() abaixo.
 double g_LastCursorPosX, g_LastCursorPosY;
 
-// Função callback chamada sempre que o usuário aperta algum dos botões do mouse
+// Função callback chamada sempre que o usuário aperta algum dos botões do
+// mouse
 void MouseButtonCallback(GLFWwindow *window, int button, int action, int mods) {
   if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
     // Se o usuário pressionou o botão esquerdo do mouse, guardamos a
@@ -4068,8 +4121,8 @@ void MouseButtonCallback(GLFWwindow *window, int button, int action, int mods) {
   }
 }
 
-// Função callback chamada sempre que o usuário movimentar o cursor do mouse em
-// cima da janela OpenGL.
+// Função callback chamada sempre que o usuário movimentar o cursor do mouse
+// em cima da janela OpenGL.
 void CursorPosCallback(GLFWwindow *window, double xpos, double ypos) {
   (void)window;
   if (g_FirstMouseInput) {
@@ -4095,7 +4148,8 @@ void CursorPosCallback(GLFWwindow *window, double xpos, double ypos) {
     g_CameraPitch = -pitch_limit;
 }
 
-// Função callback chamada sempre que o usuário movimenta a "rodinha" do mouse.
+// Função callback chamada sempre que o usuário movimenta a "rodinha" do
+// mouse.
 void ScrollCallback(GLFWwindow *window, double xoffset, double yoffset) {
   (void)window;
   (void)xoffset;
@@ -4110,8 +4164,8 @@ void Correcao_KeyCallback(int key, int action, int mod);
 void KeyCallback(GLFWwindow *window, int key, int scancode, int action,
                  int mod) {
   // =======================
-  // Não modifique esta chamada! Ela é utilizada para correção automatizada dos
-  // laboratórios. Deve ser sempre o primeiro comando desta função
+  // Não modifique esta chamada! Ela é utilizada para correção automatizada
+  // dos laboratórios. Deve ser sempre o primeiro comando desta função
   // KeyCallback().
   Correcao_KeyCallback(key, action, mod);
   // =======================
