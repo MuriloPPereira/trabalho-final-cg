@@ -21,6 +21,9 @@
 #include <glm/geometric.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+StaticModel::StaticModel()
+    : loaded(false), object_names(), bbox_min(0.0f, 0.0f, 0.0f),
+      bbox_max(0.0f, 0.0f, 0.0f) {}
 BoneInfo::BoneInfo() : id(-1), offsetMatrix(Matrix_Identity()), finalTransform(Matrix_Identity()) {}
 SalarymanAnimatedMesh::SalarymanAnimatedMesh()
     : name(), materialName(), vertex_array_object_id(0), vertex_buffer_id(0),
@@ -744,6 +747,7 @@ void CalculateSalarymanBoneTransformsAtTime(SalarymanAnimatedModel &model,
 } // namespace
 
 bool LoadSalarymanStaticModel(StaticModel &model, const char *filename) {
+  model = StaticModel();
   const std::string path = ResolveExistingPath(filename);
   printf("Carregando modelo estatico do salaryman \"%s\"...\n", path.c_str());
 
@@ -885,6 +889,7 @@ bool LoadSalarymanStaticModel(StaticModel &model, const char *filename) {
   model.object_names.push_back(object_name);
   model.bbox_min = bbox_min;
   model.bbox_max = bbox_max;
+  model.loaded = true;
 
   printf("OK (%zu vertices estaticos).\n", raw_vertices.size());
   return true;

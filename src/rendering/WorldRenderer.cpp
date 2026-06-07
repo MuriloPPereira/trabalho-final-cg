@@ -8,6 +8,7 @@
 
 #include <glad/glad.h>
 #include <glm/gtc/type_ptr.hpp>
+#include <string>
 
 std::vector<PointLight> CreateCorridorLights() {
   const CanonicalCorridorLayout corridor_layout = GetCanonicalCorridorLayout();
@@ -78,7 +79,8 @@ std::vector<PointLight> CreateCorridorLights() {
 void DrawCorridorTreadmill(const Material &floor_material,
                            const Material &ceiling_material,
                            const Material &wall_material,
-                           const std::vector<Material> &poster_materials) {
+                           const std::vector<Material> &poster_materials,
+                           const Material &doorway_placeholder_material) {
   const CanonicalCorridorLayout corridor_layout = GetCanonicalCorridorLayout();
   const float connector_length = corridor_layout.connector_length;
   const glm::vec2 block_offset = corridor_layout.block_offset;
@@ -117,8 +119,62 @@ void DrawCorridorTreadmill(const Material &floor_material,
           wall_instance.uv_offset =
               glm::vec2(segment_start_distance / kWallTextureTileSize, 0.0f);
           ApplyMaterial(wall_instance);
-          DrawVirtualObject("corridor_wall_left");
-          DrawVirtualObject("corridor_wall_right");
+
+          bool draw_doorways = draw_posters;
+          bool doorways_on_positive_x_wall = true;
+          if (draw_doorways) {
+            const glm::vec3 content_right =
+                corridor_instance.content.frame.contentRight;
+            doorways_on_positive_x_wall = (content_right.x >= 0.0f);
+          }
+
+          auto draw_left_wall_with_doorways = []() {
+            for (int span = 0; span <= kDoorwayCount; ++span) {
+              const std::string name = "corridor_wall_left_doorway_span_" +
+                                       std::to_string(span);
+              DrawVirtualObject(name.c_str());
+            }
+            for (int slot = 0; slot < kDoorwayCount; ++slot) {
+              const std::string suffix = "_" + std::to_string(slot);
+              DrawVirtualObject(
+                  ("corridor_wall_left_doorway_top" + suffix).c_str());
+              DrawVirtualObject(
+                  ("corridor_wall_left_doorway_reveal_low" + suffix).c_str());
+              DrawVirtualObject(
+                  ("corridor_wall_left_doorway_reveal_high" + suffix).c_str());
+              DrawVirtualObject(
+                  ("corridor_wall_left_doorway_reveal_top" + suffix).c_str());
+            }
+          };
+
+          auto draw_right_wall_with_doorways = []() {
+            for (int span = 0; span <= kDoorwayCount; ++span) {
+              const std::string name = "corridor_wall_right_doorway_span_" +
+                                       std::to_string(span);
+              DrawVirtualObject(name.c_str());
+            }
+            for (int slot = 0; slot < kDoorwayCount; ++slot) {
+              const std::string suffix = "_" + std::to_string(slot);
+              DrawVirtualObject(
+                  ("corridor_wall_right_doorway_top" + suffix).c_str());
+              DrawVirtualObject(
+                  ("corridor_wall_right_doorway_reveal_low" + suffix).c_str());
+              DrawVirtualObject(
+                  ("corridor_wall_right_doorway_reveal_high" + suffix).c_str());
+              DrawVirtualObject(
+                  ("corridor_wall_right_doorway_reveal_top" + suffix).c_str());
+            }
+          };
+
+          if (draw_doorways && !doorways_on_positive_x_wall)
+            draw_left_wall_with_doorways();
+          else
+            DrawVirtualObject("corridor_wall_left");
+
+          if (draw_doorways && doorways_on_positive_x_wall)
+            draw_right_wall_with_doorways();
+          else
+            DrawVirtualObject("corridor_wall_right");
 
           if (draw_posters) {
             const CorridorContent &content = corridor_instance.content;
@@ -136,6 +192,27 @@ void DrawCorridorTreadmill(const Material &floor_material,
 
               ApplyMaterial(poster_materials[poster.textureIndex]);
               DrawVirtualObject(kPosterNames[poster.slot]);
+            }
+          }
+
+          if (draw_doorways) {
+            ApplyMaterial(doorway_placeholder_material);
+            for (const DoorInstance &doorway :
+                 corridor_instance.content.doorways) {
+              const glm::vec3 up_axis = doorway.up * doorway.height;
+              const glm::vec3 width_axis =
+                  doorway.widthAxis * doorway.width;
+              const glm::mat4 doorway_basis = Matrix(
+                  doorway.normal.x, up_axis.x, width_axis.x,
+                  doorway.position.x, doorway.normal.y, up_axis.y,
+                  width_axis.y, doorway.position.y, doorway.normal.z,
+                  up_axis.z, width_axis.z, doorway.position.z, 0.0f, 0.0f,
+                  0.0f, 1.0f);
+              const glm::mat4 doorway_model =
+                  content_placement * doorway_basis;
+              glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE,
+                                 glm::value_ptr(doorway_model));
+              DrawVirtualObject("doorway_placeholder_panel");
             }
           }
         };

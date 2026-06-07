@@ -85,7 +85,8 @@ void CreateSolidColorTexture(unsigned char r, unsigned char g,
   glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8, 1, 1, 0, GL_RGB, GL_UNSIGNED_BYTE,
                pixel);
   glBindSampler(textureunit, sampler_id);
-  glBindTexture(GL_TEXTURE_2D, 0);
+  // Materials store texture units, so the generated texture must remain bound
+  // to the unit that will be sampled later by the shader.
 
   g_NumLoadedTextures += 1;
 }

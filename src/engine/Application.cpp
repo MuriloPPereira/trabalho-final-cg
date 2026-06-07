@@ -112,10 +112,13 @@ int Application::Run(int argc, char *argv[]) {
   LoadTextureImage("poster4.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // 6
   const GLuint kSalarymanTextureUnit = g_NumLoadedTextures;
   CreateSolidColorTexture(178, 168, 150); // 7
+  const GLuint kDoorwayPlaceholderTextureUnit = g_NumLoadedTextures;
+  CreateSolidColorTexture(0, 0, 0); // 8
 
   BuildCorridorAndAddToVirtualScene();
   BuildCornerAndAddToVirtualScene();
   BuildPostersAndAddToVirtualScene();
+  BuildDoorwayPlaceholderAndAddToVirtualScene();
   if (!LoadSalarymanStaticModel(g_SalarymanStaticModel,
                                 "assets/salarymanwalking.fbx"))
     std::exit(EXIT_FAILURE);
@@ -203,6 +206,16 @@ int Application::Run(int argc, char *argv[]) {
   Material player_material = salaryman_material;
   player_material.specular_strength = 0.22f;
   player_material.shininess = 36.0f;
+
+  Material doorway_placeholder_material;
+  doorway_placeholder_material.diffuse_texture_unit =
+      kDoorwayPlaceholderTextureUnit;
+  doorway_placeholder_material.specular_strength = 0.0f;
+  doorway_placeholder_material.shininess = 1.0f;
+  doorway_placeholder_material.ambient_strength = 0.0f;
+  doorway_placeholder_material.uv_scale = glm::vec2(1.0f, 1.0f);
+  doorway_placeholder_material.uv_offset = glm::vec2(0.0f, 0.0f);
+
   std::vector<PointLight> corridor_lights = CreateCorridorLights();
   // Inicializamos o código para renderização de texto.
   TextRendering_Init();
@@ -299,7 +312,8 @@ int Application::Run(int argc, char *argv[]) {
                 camera_position_c.y, camera_position_c.z, camera_position_c.w);
     SetPointLights(corridor_lights);
 
-    DrawCorridorTreadmill(floor_material, ceiling_material, wall_material, poster_materials);
+    DrawCorridorTreadmill(floor_material, ceiling_material, wall_material,
+                          poster_materials, doorway_placeholder_material);
     DrawSalarymanNPC(g_SalarymanNPC, salaryman_material);
     if (g_UseThirdPersonCamera)
       DrawPlayerCharacter(g_PlayerCharacter, player_material);

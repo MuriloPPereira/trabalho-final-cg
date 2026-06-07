@@ -11,7 +11,13 @@
 #include <string>
 #include <vector>
 
-struct StaticModel { std::vector<std::string> object_names; glm::vec3 bbox_min; glm::vec3 bbox_max; };
+struct StaticModel {
+  bool loaded;
+  std::vector<std::string> object_names;
+  glm::vec3 bbox_min;
+  glm::vec3 bbox_max;
+  StaticModel();
+};
 struct BoneInfo { int id; glm::mat4 offsetMatrix; glm::mat4 finalTransform; BoneInfo(); };
 struct SalarymanAnimatedMesh {
   std::string name;

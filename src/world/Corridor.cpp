@@ -192,6 +192,7 @@ CorridorContent GenerateCorridorContent(int corridor_id,
   content.corridorId = corridor_id;
   content.frame = MakeCorridorContentFrame(corridor_id, content_forward);
   content.posters.reserve(kPosterCount);
+  content.doorways.reserve(kDoorwayCount);
   content.lightPositions.reserve(7);
   content.hasAnomaly = false;
 
@@ -215,6 +216,27 @@ CorridorContent GenerateCorridorContent(int corridor_id,
     poster.widthAxis = -frame.contentForward;
     poster.wallSide = frame.posterWallSide;
     content.posters.push_back(poster);
+  }
+
+  for (int slot = 0; slot < kDoorwayCount; ++slot) {
+    const float doorway_distance =
+        frame.corridorLength * kDoorwayDistanceFractions[slot];
+
+    DoorInstance doorway;
+    doorway.slot = slot;
+    doorway.width = kDoorwayOpeningWidth;
+    doorway.height = kDoorwayOpeningHeight;
+    doorway.recessDepth = kDoorwayRecessDepth;
+    doorway.position =
+        frame.contentOrigin + frame.contentForward * doorway_distance +
+        frame.contentRight * (kCorridorHalfWidth + kDoorwayRecessDepth -
+                              kDoorwayPanelInset);
+    doorway.position.y = 0.0f;
+    doorway.normal = -frame.contentRight;
+    doorway.up = glm::vec3(0.0f, 1.0f, 0.0f);
+    doorway.widthAxis = frame.contentForward;
+    doorway.attachmentName = "future_door_model";
+    content.doorways.push_back(doorway);
   }
 
   const CanonicalCorridorLayout layout = GetCanonicalCorridorLayout();
@@ -694,6 +716,157 @@ void BuildCorridorAndAddToVirtualScene() {
            glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, 1.0f, 0.0f),
            kWallTextureTileSize, kWallTextureTileSize);
 
+  const float doorway_y_low = 0.0f;
+  const float doorway_y_high = kDoorwayOpeningHeight;
+  const float right_wall_x = +half_width;
+  const float right_reveal_x = right_wall_x + kDoorwayRecessDepth;
+  const float left_wall_x = -half_width;
+  const float left_reveal_x = left_wall_x - kDoorwayRecessDepth;
+
+  struct DoorwayOpening {
+    float z_low;
+    float z_high;
+  };
+
+  std::vector<DoorwayOpening> doorway_openings;
+  doorway_openings.reserve(kDoorwayCount);
+  for (int slot = 0; slot < kDoorwayCount; ++slot) {
+    const float center_z =
+        z0 - corridor_length * kDoorwayDistanceFractions[slot];
+    doorway_openings.push_back(
+        DoorwayOpening{center_z - 0.5f * kDoorwayOpeningWidth,
+                       center_z + 0.5f * kDoorwayOpeningWidth});
+  }
+  std::sort(doorway_openings.begin(), doorway_openings.end(),
+            [](const DoorwayOpening &a, const DoorwayOpening &b) {
+              return a.z_low < b.z_low;
+            });
+
+  auto add_right_wall_piece = [&](const std::string &name, float z_min,
+                                  float z_max, float y_min, float y_max) {
+    if (z_max <= z_min || y_max <= y_min)
+      return;
+    add_quad(name, glm::vec3(right_wall_x, y_min, z_min),
+             glm::vec3(right_wall_x, y_min, z_max),
+             glm::vec3(right_wall_x, y_max, z_max),
+             glm::vec3(right_wall_x, y_max, z_min),
+             glm::vec3(-1.0f, 0.0f, 0.0f),
+             glm::vec3(right_wall_x, 0.0f, z0),
+             glm::vec3(0.0f, 0.0f, -1.0f),
+             glm::vec3(0.0f, 1.0f, 0.0f), kWallTextureTileSize,
+             kWallTextureTileSize);
+  };
+
+  auto add_left_wall_piece = [&](const std::string &name, float z_min,
+                                 float z_max, float y_min, float y_max) {
+    if (z_max <= z_min || y_max <= y_min)
+      return;
+    add_quad(name, glm::vec3(left_wall_x, y_min, z_max),
+             glm::vec3(left_wall_x, y_min, z_min),
+             glm::vec3(left_wall_x, y_max, z_min),
+             glm::vec3(left_wall_x, y_max, z_max),
+             glm::vec3(1.0f, 0.0f, 0.0f),
+             glm::vec3(left_wall_x, 0.0f, z0),
+             glm::vec3(0.0f, 0.0f, -1.0f),
+             glm::vec3(0.0f, 1.0f, 0.0f), kWallTextureTileSize,
+             kWallTextureTileSize);
+  };
+
+  float span_start = z1;
+  for (int span = 0; span <= kDoorwayCount; ++span) {
+    const float span_end =
+        (span < kDoorwayCount) ? doorway_openings[span].z_low : z0;
+    add_right_wall_piece("corridor_wall_right_doorway_span_" +
+                             std::to_string(span),
+                         span_start, span_end, 0.0f, corridor_height);
+    add_left_wall_piece("corridor_wall_left_doorway_span_" +
+                            std::to_string(span),
+                        span_start, span_end, 0.0f, corridor_height);
+    if (span < kDoorwayCount)
+      span_start = doorway_openings[span].z_high;
+  }
+
+  for (int slot = 0; slot < kDoorwayCount; ++slot) {
+    const DoorwayOpening &opening = doorway_openings[slot];
+    const float z_low = opening.z_low;
+    const float z_high = opening.z_high;
+
+    add_right_wall_piece("corridor_wall_right_doorway_top_" +
+                             std::to_string(slot),
+                         z_low, z_high, doorway_y_high, corridor_height);
+    add_left_wall_piece("corridor_wall_left_doorway_top_" +
+                            std::to_string(slot),
+                        z_low, z_high, doorway_y_high, corridor_height);
+
+    add_quad("corridor_wall_right_doorway_reveal_low_" +
+                 std::to_string(slot),
+             glm::vec3(right_wall_x, doorway_y_low, z_low),
+             glm::vec3(right_reveal_x, doorway_y_low, z_low),
+             glm::vec3(right_reveal_x, doorway_y_high, z_low),
+             glm::vec3(right_wall_x, doorway_y_high, z_low),
+             glm::vec3(0.0f, 0.0f, 1.0f),
+             glm::vec3(right_reveal_x, doorway_y_low, z_low),
+             glm::vec3(1.0f, 0.0f, 0.0f),
+             glm::vec3(0.0f, 1.0f, 0.0f), kWallTextureTileSize,
+             kWallTextureTileSize);
+    add_quad("corridor_wall_right_doorway_reveal_high_" +
+                 std::to_string(slot),
+             glm::vec3(right_reveal_x, doorway_y_low, z_high),
+             glm::vec3(right_wall_x, doorway_y_low, z_high),
+             glm::vec3(right_wall_x, doorway_y_high, z_high),
+             glm::vec3(right_reveal_x, doorway_y_high, z_high),
+             glm::vec3(0.0f, 0.0f, -1.0f),
+             glm::vec3(right_reveal_x, doorway_y_low, z_high),
+             glm::vec3(1.0f, 0.0f, 0.0f),
+             glm::vec3(0.0f, 1.0f, 0.0f), kWallTextureTileSize,
+             kWallTextureTileSize);
+    add_quad("corridor_wall_right_doorway_reveal_top_" +
+                 std::to_string(slot),
+             glm::vec3(right_wall_x, doorway_y_high, z_low),
+             glm::vec3(right_reveal_x, doorway_y_high, z_low),
+             glm::vec3(right_reveal_x, doorway_y_high, z_high),
+             glm::vec3(right_wall_x, doorway_y_high, z_high),
+             glm::vec3(0.0f, -1.0f, 0.0f),
+             glm::vec3(right_reveal_x, doorway_y_high, z_low),
+             glm::vec3(1.0f, 0.0f, 0.0f),
+             glm::vec3(0.0f, 0.0f, 1.0f), kWallTextureTileSize,
+             kWallTextureTileSize);
+
+    add_quad("corridor_wall_left_doorway_reveal_low_" +
+                 std::to_string(slot),
+             glm::vec3(left_reveal_x, doorway_y_low, z_low),
+             glm::vec3(left_wall_x, doorway_y_low, z_low),
+             glm::vec3(left_wall_x, doorway_y_high, z_low),
+             glm::vec3(left_reveal_x, doorway_y_high, z_low),
+             glm::vec3(0.0f, 0.0f, 1.0f),
+             glm::vec3(left_wall_x, doorway_y_low, z_low),
+             glm::vec3(1.0f, 0.0f, 0.0f),
+             glm::vec3(0.0f, 1.0f, 0.0f), kWallTextureTileSize,
+             kWallTextureTileSize);
+    add_quad("corridor_wall_left_doorway_reveal_high_" +
+                 std::to_string(slot),
+             glm::vec3(left_wall_x, doorway_y_low, z_high),
+             glm::vec3(left_reveal_x, doorway_y_low, z_high),
+             glm::vec3(left_reveal_x, doorway_y_high, z_high),
+             glm::vec3(left_wall_x, doorway_y_high, z_high),
+             glm::vec3(0.0f, 0.0f, -1.0f),
+             glm::vec3(left_wall_x, doorway_y_low, z_high),
+             glm::vec3(1.0f, 0.0f, 0.0f),
+             glm::vec3(0.0f, 1.0f, 0.0f), kWallTextureTileSize,
+             kWallTextureTileSize);
+    add_quad("corridor_wall_left_doorway_reveal_top_" +
+                 std::to_string(slot),
+             glm::vec3(left_reveal_x, doorway_y_high, z_low),
+             glm::vec3(left_wall_x, doorway_y_high, z_low),
+             glm::vec3(left_wall_x, doorway_y_high, z_high),
+             glm::vec3(left_reveal_x, doorway_y_high, z_high),
+             glm::vec3(0.0f, -1.0f, 0.0f),
+             glm::vec3(left_wall_x, doorway_y_high, z_low),
+             glm::vec3(1.0f, 0.0f, 0.0f),
+             glm::vec3(0.0f, 0.0f, 1.0f), kWallTextureTileSize,
+             kWallTextureTileSize);
+  }
+
   GLuint vertex_buffer_id;
   glGenBuffers(1, &vertex_buffer_id);
   glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer_id);
@@ -715,6 +888,59 @@ void BuildCorridorAndAddToVirtualScene() {
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, index_buffer_id);
   glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(GLuint),
                indices.data(), GL_STATIC_DRAW);
+
+  glBindVertexArray(0);
+}
+
+void BuildDoorwayPlaceholderAndAddToVirtualScene() {
+  struct PlaceholderVertex {
+    float px, py, pz, pw;
+    float nx, ny, nz, nw;
+    float u, v;
+  };
+
+  const PlaceholderVertex vertices[] = {
+      {0.0f, 0.0f, +0.5f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
+      {0.0f, 0.0f, -0.5f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f},
+      {0.0f, 1.0f, -0.5f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f},
+      {0.0f, 1.0f, +0.5f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f},
+  };
+  const GLuint indices[] = {0, 1, 2, 0, 2, 3};
+
+  GLuint vertex_array_object_id;
+  glGenVertexArrays(1, &vertex_array_object_id);
+  glBindVertexArray(vertex_array_object_id);
+
+  GLuint vertex_buffer_id;
+  glGenBuffers(1, &vertex_buffer_id);
+  glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer_id);
+  glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+  glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(PlaceholderVertex),
+                        (void *)offsetof(PlaceholderVertex, px));
+  glEnableVertexAttribArray(0);
+  glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(PlaceholderVertex),
+                        (void *)offsetof(PlaceholderVertex, nx));
+  glEnableVertexAttribArray(1);
+  glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(PlaceholderVertex),
+                        (void *)offsetof(PlaceholderVertex, u));
+  glEnableVertexAttribArray(2);
+
+  GLuint index_buffer_id;
+  glGenBuffers(1, &index_buffer_id);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, index_buffer_id);
+  glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices,
+               GL_STATIC_DRAW);
+
+  SceneObject object;
+  object.name = "doorway_placeholder_panel";
+  object.first_index = 0;
+  object.num_indices = 6;
+  object.rendering_mode = GL_TRIANGLES;
+  object.vertex_array_object_id = vertex_array_object_id;
+  object.bbox_min = glm::vec3(0.0f, 0.0f, -0.5f);
+  object.bbox_max = glm::vec3(0.0f, 1.0f, 0.5f);
+  g_VirtualScene[object.name] = object;
 
   glBindVertexArray(0);
 }

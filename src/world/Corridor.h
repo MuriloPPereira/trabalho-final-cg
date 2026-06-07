@@ -28,10 +28,22 @@ struct PosterSlotLayout {
   glm::vec3 widthAxis;
   const char *wallSide;
 };
+struct DoorInstance {
+  int slot;
+  glm::vec3 position;
+  glm::vec3 normal;
+  glm::vec3 up;
+  glm::vec3 widthAxis;
+  float width;
+  float height;
+  float recessDepth;
+  const char *attachmentName;
+};
 struct CorridorContent {
   int corridorId;
   CorridorContentFrame frame;
   std::vector<PosterSlotLayout> posters;
+  std::vector<DoorInstance> doorways;
   std::vector<glm::vec3> lightPositions;
   glm::vec3 salarymanSpawnPosition;
   glm::vec3 salarymanForward;
@@ -76,5 +88,6 @@ const char *PlayerSectionName(int player_section);
 void BuildCorridorAndAddToVirtualScene();
 void BuildCornerAndAddToVirtualScene();
 void BuildPostersAndAddToVirtualScene();
+void BuildDoorwayPlaceholderAndAddToVirtualScene();
 
 #endif

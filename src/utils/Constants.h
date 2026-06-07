@@ -21,6 +21,14 @@ inline constexpr float kConnectorLength = kCorridorLength * 0.5f;
 inline constexpr float kFloorTileSize = 0.5f;
 inline constexpr float kCeilingTileSize = 2.5f;
 inline constexpr float kWallTextureTileSize = 2.0f;
+inline constexpr int kDoorwayCount = 3;
+inline constexpr float kDoorwayDistanceFractions[kDoorwayCount] = {0.50f,
+                                                                   0.70f,
+                                                                   0.76f};
+inline constexpr float kDoorwayOpeningWidth = 1.35f;
+inline constexpr float kDoorwayOpeningHeight = 2.20f;
+inline constexpr float kDoorwayRecessDepth = 0.16f;
+inline constexpr float kDoorwayPanelInset = 0.01f;
 
 inline const char *const kPosterNames[kPosterCount] = {"poster_0", "poster_1", "poster_2", "poster_3"};
 
