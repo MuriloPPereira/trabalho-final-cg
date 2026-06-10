@@ -8,7 +8,18 @@
 #include <string>
 #include <vector>
 
-struct CorridorState { int id; bool has_anomaly; };
+enum CorridorAnomalyType {
+  kCorridorAnomalyNone = 0,
+  kCorridorAnomalyIdenticalPosters,
+  kCorridorAnomalyNoSmokingSigns,
+  kCorridorAnomalyCount
+};
+
+struct CorridorState {
+  int id;
+  bool has_anomaly;
+  CorridorAnomalyType anomaly_type;
+};
 struct CorridorRenderTransform { glm::mat4 geometryFromLocal; };
 struct CorridorContentFrame {
   int logicalCorridorId;
@@ -39,15 +50,25 @@ struct DoorInstance {
   float recessDepth;
   const char *attachmentName;
 };
+struct NoSmokingSignInstance {
+  glm::vec3 position;
+  glm::vec3 normal;
+  glm::vec3 up;
+  glm::vec3 widthAxis;
+  float width;
+  float height;
+};
 struct CorridorContent {
   int corridorId;
   CorridorContentFrame frame;
   std::vector<PosterSlotLayout> posters;
   std::vector<DoorInstance> doorways;
+  std::vector<NoSmokingSignInstance> noSmokingSigns;
   std::vector<glm::vec3> lightPositions;
   glm::vec3 salarymanSpawnPosition;
   glm::vec3 salarymanForward;
   bool hasAnomaly;
+  CorridorAnomalyType anomalyType;
 };
 struct CorridorInstance { CorridorState state; CorridorContent content; };
 
@@ -66,6 +87,7 @@ extern CorridorInstance g_NegativeCandidateCorridorInstance;
 extern CorridorInstance g_PositiveCandidateCorridorInstance;
 
 int PositiveModulo(int value, int divisor);
+const char *CorridorAnomalyTypeName(CorridorAnomalyType anomaly_type);
 int GetPosterTextureIndex(int corridor_id, int poster_slot);
 CorridorState MakeCorridorState(int id);
 void RefreshCandidateCorridorStates();
@@ -76,8 +98,8 @@ glm::vec3 TransformPoint(const glm::mat4 &transform, const glm::vec3 &point);
 glm::vec3 TransformVector(const glm::mat4 &transform, const glm::vec3 &vector);
 CorridorRenderTransform MakeCorridorRenderTransform(const glm::mat4 &geometry_from_local);
 CorridorContentFrame MakeCorridorContentFrame(int logical_corridor_id, const glm::vec3 &requested_content_forward);
-CorridorContent GenerateCorridorContent(int corridor_id, const glm::vec3 &content_forward, bool has_anomaly);
-CorridorInstance CreateNewCorridorInstance(int logical_id, const glm::vec3 &content_forward, bool has_anomaly);
+CorridorContent GenerateCorridorContent(int corridor_id, const glm::vec3 &content_forward, CorridorAnomalyType anomaly_type);
+CorridorInstance CreateNewCorridorInstance(int logical_id, const glm::vec3 &content_forward, CorridorAnomalyType anomaly_type);
 std::string PosterOrderString(const CorridorContent &content);
 void LogCorridorContentSignature(const char *reason, int render_slot, int traversal_direction, const CorridorInstance &corridor_instance, const glm::vec3 &block_display_offset);
 void LogCorridorSlotStability(const char *reason, int traversal_direction, const CorridorInstance &corridor_instance);
@@ -88,6 +110,7 @@ const char *PlayerSectionName(int player_section);
 void BuildCorridorAndAddToVirtualScene();
 void BuildCornerAndAddToVirtualScene();
 void BuildPostersAndAddToVirtualScene();
+void BuildNoSmokingSignAndAddToVirtualScene();
 void BuildDoorwayPlaceholderAndAddToVirtualScene();
 
 #endif

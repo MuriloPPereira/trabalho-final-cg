@@ -29,6 +29,13 @@ inline constexpr float kDoorwayOpeningWidth = 1.35f;
 inline constexpr float kDoorwayOpeningHeight = 2.20f;
 inline constexpr float kDoorwayRecessDepth = 0.16f;
 inline constexpr float kDoorwayPanelInset = 0.01f;
+inline constexpr float kNoSmokingSignWidth = 0.62f;
+inline constexpr float kNoSmokingSignHeight = 0.62f;
+inline constexpr float kNoSmokingSignCenterY = 1.55f;
+inline constexpr float kNoSmokingSignStartDistance = 3.0f;
+inline constexpr float kNoSmokingSignWallOffset = 0.022f;
+inline constexpr float kNoSmokingSignLayerOffset = 0.00012f;
+inline constexpr int kNoSmokingAnomalySignCount = 260;
 
 inline const char *const kPosterNames[kPosterCount] = {"poster_0", "poster_1", "poster_2", "poster_3"};
 

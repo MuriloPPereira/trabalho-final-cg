@@ -6,6 +6,7 @@
 #include "rendering/Mesh.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <glm/geometric.hpp>
@@ -35,40 +36,178 @@ int GetPosterTextureIndex(int corridor_id, int poster_slot) {
   return PositiveModulo(poster_slot, kPosterCount);
 }
 
+const char *CorridorAnomalyTypeName(CorridorAnomalyType anomaly_type) {
+  switch (anomaly_type) {
+  case kCorridorAnomalyNone:
+    return "none";
+  case kCorridorAnomalyIdenticalPosters:
+    return "identical_posters";
+  case kCorridorAnomalyNoSmokingSigns:
+    return "no_smoking_signs";
+  default:
+    return "unknown";
+  }
+}
+
+static CorridorAnomalyType ChooseRandomAnomalyType() {
+  const int anomaly_count =
+      static_cast<int>(kCorridorAnomalyCount) -
+      static_cast<int>(kCorridorAnomalyIdenticalPosters);
+  return static_cast<CorridorAnomalyType>(
+      static_cast<int>(kCorridorAnomalyIdenticalPosters) +
+      PositiveModulo(rand(), anomaly_count));
+}
+
+static unsigned int HashCorridorValue(int corridor_id, int index, int salt) {
+  unsigned int x = 2166136261u;
+  x ^= static_cast<unsigned int>(corridor_id + 1009);
+  x *= 16777619u;
+  x ^= static_cast<unsigned int>(index + 9176);
+  x *= 16777619u;
+  x ^= static_cast<unsigned int>(salt + 131);
+  x *= 16777619u;
+  x ^= x >> 13;
+  x *= 1274126177u;
+  x ^= x >> 16;
+  return x;
+}
+
+static float HashToUnitFloat(int corridor_id, int index, int salt) {
+  return static_cast<float>(HashCorridorValue(corridor_id, index, salt) &
+                            0x00ffffffu) /
+         static_cast<float>(0x01000000u);
+}
+
+static float RandomRange(int corridor_id, int index, int salt, float min_value,
+                         float max_value) {
+  return min_value +
+         (max_value - min_value) * HashToUnitFloat(corridor_id, index, salt);
+}
+
+static bool SignDistanceOverlapsDoorway(float distance, float sign_width) {
+  const float sign_half_extent = sign_width * 0.5f + 0.18f;
+  const float doorway_half_extent = kDoorwayOpeningWidth * 0.5f;
+  for (int slot = 0; slot < kDoorwayCount; ++slot) {
+    const float doorway_distance =
+        kCorridorLength * kDoorwayDistanceFractions[slot];
+    if (std::abs(distance - doorway_distance) <
+        sign_half_extent + doorway_half_extent)
+      return true;
+  }
+  return false;
+}
+
+static NoSmokingSignInstance MakeNoSmokingSign(
+    const CorridorContentFrame &frame, float distance, float center_y,
+    float width, float height, float rotation_radians, float surface_offset) {
+  const glm::vec3 wall_normal = -frame.contentRight;
+  const glm::vec3 base_up(0.0f, 1.0f, 0.0f);
+  const glm::vec3 base_width_axis = frame.contentForward;
+  const float c = std::cos(rotation_radians);
+  const float s = std::sin(rotation_radians);
+
+  NoSmokingSignInstance sign;
+  sign.normal = wall_normal;
+  sign.up = glm::normalize(base_up * c + base_width_axis * s);
+  sign.widthAxis = glm::normalize(base_width_axis * c - base_up * s);
+  sign.width = width;
+  sign.height = height;
+  sign.position = frame.contentOrigin +
+                  frame.contentRight * kCorridorHalfWidth +
+                  wall_normal * surface_offset +
+                  frame.contentForward * distance;
+  sign.position.y = center_y;
+  return sign;
+}
+
+static void AddNormalNoSmokingSign(std::vector<NoSmokingSignInstance> &signs,
+                                   const CorridorContentFrame &frame) {
+  signs.push_back(MakeNoSmokingSign(
+      frame, kNoSmokingSignStartDistance, kNoSmokingSignCenterY,
+      kNoSmokingSignWidth, kNoSmokingSignHeight, 0.0f,
+      kNoSmokingSignWallOffset));
+}
+
+static void AddNoSmokingAnomalySigns(std::vector<NoSmokingSignInstance> &signs,
+                                     const CorridorContentFrame &frame,
+                                     int corridor_id) {
+  signs.reserve(kNoSmokingAnomalySignCount);
+
+  float previous_distance = kNoSmokingSignStartDistance;
+  float previous_y = kNoSmokingSignCenterY;
+  for (int i = 0; i < kNoSmokingAnomalySignCount; ++i) {
+    const float scale = RandomRange(corridor_id, i, 10, 0.65f, 1.35f);
+    const float width = kNoSmokingSignWidth * scale;
+    const float height = kNoSmokingSignHeight * scale;
+    const float distance_min = 0.85f + width * 0.5f;
+    const float distance_max = frame.corridorLength - 0.85f - width * 0.5f;
+    const float y_min = 0.35f + height * 0.5f;
+    const float y_max = kCorridorHeight - 0.22f - height * 0.5f;
+
+    float distance =
+        RandomRange(corridor_id, i, 20, distance_min, distance_max);
+    float center_y = RandomRange(corridor_id, i, 30, y_min, y_max);
+
+    if (i > 0 && i % 7 == 0) {
+      distance = previous_distance +
+                 RandomRange(corridor_id, i, 40, -0.35f, 0.35f);
+      center_y = previous_y + RandomRange(corridor_id, i, 50, -0.26f, 0.26f);
+      distance = std::max(distance_min, std::min(distance, distance_max));
+      center_y = std::max(y_min, std::min(center_y, y_max));
+    }
+
+    for (int attempt = 0;
+         attempt < 6 && SignDistanceOverlapsDoorway(distance, width);
+         ++attempt) {
+      distance = RandomRange(corridor_id, i, 100 + attempt, distance_min,
+                             distance_max);
+    }
+
+    const float rotation =
+        RandomRange(corridor_id, i, 60, -0.22f, 0.22f);
+    const float surface_offset =
+        kNoSmokingSignWallOffset + i * kNoSmokingSignLayerOffset;
+    signs.push_back(MakeNoSmokingSign(frame, distance, center_y, width, height,
+                                      rotation, surface_offset));
+    previous_distance = distance;
+    previous_y = center_y;
+  }
+}
+
 CorridorContent GenerateCorridorContent(int corridor_id,
                                         const glm::vec3 &content_forward,
-                                        bool has_anomaly);
+                                        CorridorAnomalyType anomaly_type);
 CorridorInstance CreateNewCorridorInstance(int logical_id,
                                            const glm::vec3 &content_forward,
-                                           bool has_anomaly);
+                                           CorridorAnomalyType anomaly_type);
 
 CorridorState MakeCorridorState(int id) {
   CorridorState state;
   state.id = id;
-  state.has_anomaly = false; // Hook for later anomaly selection.
+  state.has_anomaly = false;
+  state.anomaly_type = kCorridorAnomalyNone;
   return state;
 }
 
 void RefreshCandidateCorridorStates() {
 
   bool next_has_anomaly = (rand() % 2 == 0);
+  CorridorAnomalyType next_anomaly_type =
+      next_has_anomaly ? ChooseRandomAnomalyType() : kCorridorAnomalyNone;
 
   g_NegativeCandidateCorridorInstance = CreateNewCorridorInstance(
-      g_NextCorridorSequenceId, glm::vec3(0.0f, 0.0f, +1.0f), next_has_anomaly);
+      g_NextCorridorSequenceId, glm::vec3(0.0f, 0.0f, +1.0f),
+      next_anomaly_type);
   g_PositiveCandidateCorridorInstance = CreateNewCorridorInstance(
-      g_NextCorridorSequenceId, glm::vec3(0.0f, 0.0f, -1.0f), next_has_anomaly);
-
-  g_NegativeCandidateCorridorInstance.state.has_anomaly = next_has_anomaly;
-  g_NegativeCandidateCorridorInstance.content.hasAnomaly = next_has_anomaly;
-
-  g_PositiveCandidateCorridorInstance.state.has_anomaly = next_has_anomaly;
-  g_PositiveCandidateCorridorInstance.content.hasAnomaly = next_has_anomaly;
+      g_NextCorridorSequenceId, glm::vec3(0.0f, 0.0f, -1.0f),
+      next_anomaly_type);
 }
 void InitializeCorridorLifecycle() {
   g_CurrentCorridorSequenceId = 0;
   g_NextCorridorSequenceId = 1;
   g_CurrentCorridorInstance = CreateNewCorridorInstance(
-      g_CurrentCorridorSequenceId, glm::vec3(0.0f, 0.0f, -1.0f), false);
+      g_CurrentCorridorSequenceId, glm::vec3(0.0f, 0.0f, -1.0f),
+      kCorridorAnomalyNone);
   RefreshCandidateCorridorStates();
 }
 
@@ -105,7 +244,9 @@ void ActivateNewLogicalCorridor(int physical_side) {
                                   : g_PositiveCandidateCorridorInstance;
 
   if (g_CurrentCorridorInstance.state.has_anomaly) {
-    printf("\n[SPOILER] ANOMALIA NO CORREDOR ATUAL (POSTERS IDENTICOS)\n");
+    printf("\n[SPOILER] ANOMALIA NO CORREDOR ATUAL (%s)\n",
+           CorridorAnomalyTypeName(
+               g_CurrentCorridorInstance.state.anomaly_type));
   } else {
     printf("\n[SPOILER] CORREDOR NORMAL\n");
   }
@@ -180,7 +321,7 @@ MakeCorridorContentFrame(int logical_corridor_id,
 
 CorridorContent GenerateCorridorContent(int corridor_id,
                                         const glm::vec3 &content_forward,
-                                        bool has_anomaly) {
+                                        CorridorAnomalyType anomaly_type) {
   const float poster_center_y = 1.6f;
   const float poster_offset = 0.02f;
   const float poster_wall_offset = kCorridorHalfWidth - poster_offset;
@@ -194,7 +335,8 @@ CorridorContent GenerateCorridorContent(int corridor_id,
   content.posters.reserve(kPosterCount);
   content.doorways.reserve(kDoorwayCount);
   content.lightPositions.reserve(7);
-  content.hasAnomaly = false;
+  content.hasAnomaly = (anomaly_type != kCorridorAnomalyNone);
+  content.anomalyType = anomaly_type;
 
   const CorridorContentFrame &frame = content.frame;
   for (int slot = 0; slot < kPosterCount; ++slot) {
@@ -202,7 +344,7 @@ CorridorContent GenerateCorridorContent(int corridor_id,
 
     PosterSlotLayout poster;
     poster.slot = slot;
-    if (has_anomaly) {
+    if (anomaly_type == kCorridorAnomalyIdenticalPosters) {
       poster.textureIndex = 0;
     } else {
       poster.textureIndex = GetPosterTextureIndex(corridor_id, slot);
@@ -217,6 +359,11 @@ CorridorContent GenerateCorridorContent(int corridor_id,
     poster.wallSide = frame.posterWallSide;
     content.posters.push_back(poster);
   }
+
+  if (anomaly_type == kCorridorAnomalyNoSmokingSigns)
+    AddNoSmokingAnomalySigns(content.noSmokingSigns, frame, corridor_id);
+  else
+    AddNormalNoSmokingSign(content.noSmokingSigns, frame);
 
   for (int slot = 0; slot < kDoorwayCount; ++slot) {
     const float doorway_distance =
@@ -270,12 +417,13 @@ CorridorContent GenerateCorridorContent(int corridor_id,
 
 CorridorInstance CreateNewCorridorInstance(int logical_id,
                                            const glm::vec3 &content_forward,
-                                           bool has_anomaly) {
+                                           CorridorAnomalyType anomaly_type) {
   CorridorInstance instance;
   instance.state = MakeCorridorState(logical_id);
-  instance.state.has_anomaly = has_anomaly;
+  instance.state.has_anomaly = (anomaly_type != kCorridorAnomalyNone);
+  instance.state.anomaly_type = anomaly_type;
   instance.content =
-      GenerateCorridorContent(logical_id, content_forward, has_anomaly);
+      GenerateCorridorContent(logical_id, content_forward, anomaly_type);
   return instance;
 }
 
@@ -581,6 +729,59 @@ void BuildPostersAndAddToVirtualScene() {
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, index_buffer_id);
   glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(GLuint),
                indices.data(), GL_STATIC_DRAW);
+
+  glBindVertexArray(0);
+}
+
+void BuildNoSmokingSignAndAddToVirtualScene() {
+  struct SignVertex {
+    float px, py, pz, pw;
+    float nx, ny, nz, nw;
+    float u, v;
+  };
+
+  const SignVertex vertices[] = {
+      {0.0f, -0.5f, -0.5f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},
+      {0.0f, +0.5f, -0.5f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f},
+      {0.0f, +0.5f, +0.5f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 1.0f},
+      {0.0f, -0.5f, +0.5f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f},
+  };
+  const GLuint indices[] = {0, 1, 2, 0, 2, 3};
+
+  GLuint vertex_array_object_id;
+  glGenVertexArrays(1, &vertex_array_object_id);
+  glBindVertexArray(vertex_array_object_id);
+
+  GLuint vertex_buffer_id;
+  glGenBuffers(1, &vertex_buffer_id);
+  glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer_id);
+  glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+  glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(SignVertex),
+                        (void *)offsetof(SignVertex, px));
+  glEnableVertexAttribArray(0);
+  glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(SignVertex),
+                        (void *)offsetof(SignVertex, nx));
+  glEnableVertexAttribArray(1);
+  glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(SignVertex),
+                        (void *)offsetof(SignVertex, u));
+  glEnableVertexAttribArray(2);
+
+  GLuint index_buffer_id;
+  glGenBuffers(1, &index_buffer_id);
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, index_buffer_id);
+  glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices,
+               GL_STATIC_DRAW);
+
+  SceneObject object;
+  object.name = "no_smoking_sign";
+  object.first_index = 0;
+  object.num_indices = 6;
+  object.rendering_mode = GL_TRIANGLES;
+  object.vertex_array_object_id = vertex_array_object_id;
+  object.bbox_min = glm::vec3(0.0f, -0.5f, -0.5f);
+  object.bbox_max = glm::vec3(0.0f, +0.5f, +0.5f);
+  g_VirtualScene[object.name] = object;
 
   glBindVertexArray(0);
 }

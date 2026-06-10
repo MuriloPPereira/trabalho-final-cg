@@ -80,6 +80,7 @@ void DrawCorridorTreadmill(const Material &floor_material,
                            const Material &ceiling_material,
                            const Material &wall_material,
                            const std::vector<Material> &poster_materials,
+                           const Material &no_smoking_sign_material,
                            const Material &doorway_placeholder_material) {
   const CanonicalCorridorLayout corridor_layout = GetCanonicalCorridorLayout();
   const float connector_length = corridor_layout.connector_length;
@@ -192,6 +193,22 @@ void DrawCorridorTreadmill(const Material &floor_material,
 
               ApplyMaterial(poster_materials[poster.textureIndex]);
               DrawVirtualObject(kPosterNames[poster.slot]);
+            }
+
+            ApplyMaterial(no_smoking_sign_material);
+            for (const NoSmokingSignInstance &sign : content.noSmokingSigns) {
+              const glm::vec3 up_axis = sign.up * sign.height;
+              const glm::vec3 width_axis = sign.widthAxis * sign.width;
+              const glm::mat4 sign_basis =
+                  Matrix(sign.normal.x, up_axis.x, width_axis.x,
+                         sign.position.x, sign.normal.y, up_axis.y,
+                         width_axis.y, sign.position.y, sign.normal.z,
+                         up_axis.z, width_axis.z, sign.position.z, 0.0f,
+                         0.0f, 0.0f, 1.0f);
+              const glm::mat4 sign_model = content_placement * sign_basis;
+              glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE,
+                                 glm::value_ptr(sign_model));
+              DrawVirtualObject("no_smoking_sign");
             }
           }
 

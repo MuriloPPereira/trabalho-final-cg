@@ -110,14 +110,17 @@ int Application::Run(int argc, char *argv[]) {
   LoadTextureImage("poster2.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // 4
   LoadTextureImage("poster3.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // 5
   LoadTextureImage("poster4.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // 6
+  const GLuint kNoSmokingTextureUnit = g_NumLoadedTextures;
+  LoadTextureImage("no_smoking.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // 7
   const GLuint kSalarymanTextureUnit = g_NumLoadedTextures;
-  CreateSolidColorTexture(178, 168, 150); // 7
+  CreateSolidColorTexture(178, 168, 150); // 8
   const GLuint kDoorwayPlaceholderTextureUnit = g_NumLoadedTextures;
-  CreateSolidColorTexture(0, 0, 0); // 8
+  CreateSolidColorTexture(0, 0, 0); // 9
 
   BuildCorridorAndAddToVirtualScene();
   BuildCornerAndAddToVirtualScene();
   BuildPostersAndAddToVirtualScene();
+  BuildNoSmokingSignAndAddToVirtualScene();
   BuildDoorwayPlaceholderAndAddToVirtualScene();
   if (!LoadSalarymanStaticModel(g_SalarymanStaticModel,
                                 "assets/salarymanwalking.fbx"))
@@ -194,6 +197,14 @@ int Application::Run(int argc, char *argv[]) {
     poster_material.uv_offset = glm::vec2(0.0f, 0.0f);
     poster_materials.push_back(poster_material);
   }
+
+  Material no_smoking_sign_material;
+  no_smoking_sign_material.diffuse_texture_unit = kNoSmokingTextureUnit;
+  no_smoking_sign_material.specular_strength = 0.12f;
+  no_smoking_sign_material.shininess = 18.0f;
+  no_smoking_sign_material.ambient_strength = 0.06f;
+  no_smoking_sign_material.uv_scale = glm::vec2(1.0f, 1.0f);
+  no_smoking_sign_material.uv_offset = glm::vec2(0.0f, 0.0f);
 
   Material salaryman_material;
   salaryman_material.diffuse_texture_unit = kSalarymanTextureUnit;
@@ -313,7 +324,8 @@ int Application::Run(int argc, char *argv[]) {
     SetPointLights(corridor_lights);
 
     DrawCorridorTreadmill(floor_material, ceiling_material, wall_material,
-                          poster_materials, doorway_placeholder_material);
+                          poster_materials, no_smoking_sign_material,
+                          doorway_placeholder_material);
     DrawSalarymanNPC(g_SalarymanNPC, salaryman_material);
     if (g_UseThirdPersonCamera)
       DrawPlayerCharacter(g_PlayerCharacter, player_material);
