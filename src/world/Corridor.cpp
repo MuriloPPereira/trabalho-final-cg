@@ -189,25 +189,42 @@ CorridorState MakeCorridorState(int id) {
   return state;
 }
 
+static CorridorState MakeCorridorState(int id,
+                                       CorridorAnomalyType anomaly_type) {
+  CorridorState state = MakeCorridorState(id);
+  state.has_anomaly = (anomaly_type != kCorridorAnomalyNone);
+  state.anomaly_type = anomaly_type;
+  return state;
+}
+
+static CorridorInstance CreateCorridorInstanceFromState(
+    const CorridorState &state, const glm::vec3 &content_forward) {
+  CorridorInstance instance;
+  instance.state = state;
+  instance.content =
+      GenerateCorridorContent(state.id, content_forward, state.anomaly_type);
+  return instance;
+}
+
 void RefreshCandidateCorridorStates() {
 
   bool next_has_anomaly = (rand() % 2 == 0);
   CorridorAnomalyType next_anomaly_type =
       next_has_anomaly ? ChooseRandomAnomalyType() : kCorridorAnomalyNone;
+  const CorridorState next_state =
+      MakeCorridorState(g_NextCorridorSequenceId, next_anomaly_type);
 
-  g_NegativeCandidateCorridorInstance = CreateNewCorridorInstance(
-      g_NextCorridorSequenceId, glm::vec3(0.0f, 0.0f, +1.0f),
-      next_anomaly_type);
-  g_PositiveCandidateCorridorInstance = CreateNewCorridorInstance(
-      g_NextCorridorSequenceId, glm::vec3(0.0f, 0.0f, -1.0f),
-      next_anomaly_type);
+  g_NegativeCandidateCorridorInstance = CreateCorridorInstanceFromState(
+      next_state, glm::vec3(0.0f, 0.0f, +1.0f));
+  g_PositiveCandidateCorridorInstance = CreateCorridorInstanceFromState(
+      next_state, glm::vec3(0.0f, 0.0f, -1.0f));
 }
 void InitializeCorridorLifecycle() {
   g_CurrentCorridorSequenceId = 0;
   g_NextCorridorSequenceId = 1;
-  g_CurrentCorridorInstance = CreateNewCorridorInstance(
-      g_CurrentCorridorSequenceId, glm::vec3(0.0f, 0.0f, -1.0f),
-      kCorridorAnomalyNone);
+  g_CurrentCorridorInstance = CreateCorridorInstanceFromState(
+      MakeCorridorState(g_CurrentCorridorSequenceId),
+      glm::vec3(0.0f, 0.0f, -1.0f));
   RefreshCandidateCorridorStates();
 }
 
@@ -420,13 +437,8 @@ CorridorContent GenerateCorridorContent(int corridor_id,
 CorridorInstance CreateNewCorridorInstance(int logical_id,
                                            const glm::vec3 &content_forward,
                                            CorridorAnomalyType anomaly_type) {
-  CorridorInstance instance;
-  instance.state = MakeCorridorState(logical_id);
-  instance.state.has_anomaly = (anomaly_type != kCorridorAnomalyNone);
-  instance.state.anomaly_type = anomaly_type;
-  instance.content =
-      GenerateCorridorContent(logical_id, content_forward, anomaly_type);
-  return instance;
+  return CreateCorridorInstanceFromState(
+      MakeCorridorState(logical_id, anomaly_type), content_forward);
 }
 
 std::string PosterOrderString(const CorridorContent &content) {
