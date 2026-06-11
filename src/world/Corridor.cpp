@@ -243,14 +243,16 @@ void ActivateNewLogicalCorridor(int physical_side) {
                                   ? g_NegativeCandidateCorridorInstance
                                   : g_PositiveCandidateCorridorInstance;
 
-  if (g_CurrentCorridorInstance.state.has_anomaly) {
-    printf("\n[SPOILER] ANOMALIA NO CORREDOR ATUAL (%s)\n",
-           CorridorAnomalyTypeName(
-               g_CurrentCorridorInstance.state.anomaly_type));
-  } else {
-    printf("\n[SPOILER] CORREDOR NORMAL\n");
+  if (kCorridorDebugLogsEnabled) {
+    if (g_CurrentCorridorInstance.state.has_anomaly) {
+      printf("\n[SPOILER] ANOMALIA NO CORREDOR ATUAL (%s)\n",
+             CorridorAnomalyTypeName(
+                 g_CurrentCorridorInstance.state.anomaly_type));
+    } else {
+      printf("\n[SPOILER] CORREDOR NORMAL\n");
+    }
+    fflush(stdout);
   }
-  fflush(stdout);
   g_CurrentCorridorSequenceId = g_CurrentCorridorInstance.state.id;
   g_NextCorridorSequenceId = g_CurrentCorridorSequenceId + 1;
   RefreshCandidateCorridorStates();

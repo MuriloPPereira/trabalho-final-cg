@@ -210,6 +210,13 @@ void LoadShader(const char *filename, GLuint shader_id) {
 
   // A chamada "delete" em C++ é equivalente ao "free()" do C
   delete[] log;
+
+  if (!compiled_ok) {
+    fprintf(stderr,
+            "ERROR: Aborting due to shader compilation failure in \"%s\".\n",
+            filename);
+    std::exit(EXIT_FAILURE);
+  }
 }
 
 // Esta função cria um programa de GPU, o qual contém obrigatoriamente um
@@ -251,6 +258,7 @@ GLuint CreateGpuProgram(GLuint vertex_shader_id, GLuint fragment_shader_id) {
     delete[] log;
 
     fprintf(stderr, "%s", output.c_str());
+    std::exit(EXIT_FAILURE);
   }
 
   // Os "Shader Objects" podem ser marcados para deleção após serem linkados

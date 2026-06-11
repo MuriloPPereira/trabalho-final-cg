@@ -187,7 +187,7 @@ void BuildTrianglesAndAddToVirtualScene(ObjModel *model) {
     size_t first_index = indices.size();
     size_t num_triangles = model->shapes[shape].mesh.num_face_vertices.size();
 
-    const float minval = std::numeric_limits<float>::min();
+    const float minval = std::numeric_limits<float>::lowest();
     const float maxval = std::numeric_limits<float>::max();
 
     glm::vec3 bbox_min = glm::vec3(maxval, maxval, maxval);

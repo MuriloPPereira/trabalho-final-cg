@@ -5,6 +5,7 @@
 #include "rendering/Mesh.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <stack>
 #include <glm/gtc/type_ptr.hpp>
 
@@ -47,16 +48,24 @@ void DrawVirtualObject(const char *object_name) {
   if (g_use_skinning_uniform >= 0)
     glUniform1i(g_use_skinning_uniform, GL_FALSE);
 
+  const auto object_it = g_VirtualScene.find(object_name);
+  if (object_it == g_VirtualScene.end()) {
+    fprintf(stderr, "ERROR: Virtual scene object \"%s\" was not found.\n",
+            object_name);
+    return;
+  }
+  const SceneObject &object = object_it->second;
+
   // "Ligamos" o VAO. Informamos que queremos utilizar os atributos de
   // vértices apontados pelo VAO criado pela função
   // BuildTrianglesAndAddToVirtualScene(). Veja comentários detalhados dentro
   // da definição de BuildTrianglesAndAddToVirtualScene().
-  glBindVertexArray(g_VirtualScene[object_name].vertex_array_object_id);
+  glBindVertexArray(object.vertex_array_object_id);
 
   // Setamos as variáveis "bbox_min" e "bbox_max" do fragment shader
   // com os parâmetros da axis-aligned bounding box (AABB) do modelo.
-  glm::vec3 bbox_min = g_VirtualScene[object_name].bbox_min;
-  glm::vec3 bbox_max = g_VirtualScene[object_name].bbox_max;
+  glm::vec3 bbox_min = object.bbox_min;
+  glm::vec3 bbox_max = object.bbox_max;
   glUniform4f(g_bbox_min_uniform, bbox_min.x, bbox_min.y, bbox_min.z, 1.0f);
   glUniform4f(g_bbox_max_uniform, bbox_max.x, bbox_max.y, bbox_max.z, 1.0f);
 
@@ -66,9 +75,8 @@ void DrawVirtualObject(const char *object_name) {
   // e veja a documentação da função glDrawElements() em
   // http://docs.gl/gl3/glDrawElements.
   glDrawElements(
-      g_VirtualScene[object_name].rendering_mode,
-      g_VirtualScene[object_name].num_indices, GL_UNSIGNED_INT,
-      (void *)(g_VirtualScene[object_name].first_index * sizeof(GLuint)));
+      object.rendering_mode, object.num_indices, GL_UNSIGNED_INT,
+      (void *)(object.first_index * sizeof(GLuint)));
 
   // "Desligamos" o VAO, evitando assim que operações posteriores venham a
   // alterar o mesmo. Isso evita bugs.
