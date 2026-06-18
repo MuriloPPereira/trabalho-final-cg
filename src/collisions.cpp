@@ -1,4 +1,5 @@
 #include "../include/collisions.h"
+#include "entities/NPC.h"
 #include <algorithm>
 #include <glm/glm.hpp>
 
@@ -88,6 +89,45 @@ CollisionResult UpdatePlayerCollision(glm::vec2 camera_pos, float player_radius,
     }
 
     glm::vec2 p_world = p + (float)block_index * block_offset;
+
+    // Colisão dinâmica com o NPC
+    if (g_SalarymanNPC.active) {
+        glm::vec2 npc_pos(g_SalarymanNPC.position.x, g_SalarymanNPC.position.z);
+        glm::vec2 diff = p_world - npc_pos;
+        float dist = glm::length(diff);
+        float npc_radius = g_SalarymanNPC.isGiant ? 0.6f : 0.4f;
+        float min_dist = player_radius + npc_radius;
+        
+        if (dist < min_dist && dist > 0.0001f) {
+            p_world = npc_pos + glm::normalize(diff) * min_dist;
+            
+            // Re-clampar contra as paredes estáticas para evitar que o NPC empurre o jogador para fora do cenário
+            glm::vec2 p_local = p_world - (float)block_index * block_offset;
+            bool inside_any_box_again = false;
+            for (const WalkableBox2D& box : walkable_boxes) {
+                if (inside_box(box, p_local.x, p_local.y)) {
+                    inside_any_box_again = true;
+                    break;
+                }
+            }
+            if (!inside_any_box_again) {
+                glm::vec2 best = closest_point(walkable_boxes[0], p_local);
+                float best_dist2 = (best.x - p_local.x) * (best.x - p_local.x) + (best.y - p_local.y) * (best.y - p_local.y);
+
+                for (const WalkableBox2D& box : walkable_boxes) {
+                    glm::vec2 candidate = closest_point(box, p_local);
+                    float dist2 = (candidate.x - p_local.x) * (candidate.x - p_local.x) + (candidate.y - p_local.y) * (candidate.y - p_local.y);
+                    if (dist2 < best_dist2) {
+                        best = candidate;
+                        best_dist2 = dist2;
+                    }
+                }
+                p_local = best;
+            }
+            p_world = p_local + (float)block_index * block_offset;
+            p = p_local; // Atualizar p para computar as flags de resultado corretamente abaixo
+        }
+    }
 
     // Popula e retorna a estrutura com todos os resultados necessários para o main
     CollisionResult result;
