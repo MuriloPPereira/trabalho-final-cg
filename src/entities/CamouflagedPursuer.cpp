@@ -11,12 +11,14 @@
 #include <glm/gtc/type_ptr.hpp>
 
 CamouflagedPursuerState g_CamouflagedPursuer;
+SalarymanAnimatedModel g_CamouflagedPursuerAnimatedModel;
+SalarymanAnimator g_CamouflagedPursuerAnimator;
 
 CamouflagedPursuerState::CamouflagedPursuerState()
     : active(false), visible(false), chasing(false), corridorId(-1),
       triggerRadius(kCamouflagedPursuerTriggerRadius), movementSpeed(0.0f),
-      position(0.0f),
-      forward(0.0f, 0.0f, -1.0f), placeholderModel(NULL) {}
+      position(0.0f), forward(0.0f, 0.0f, -1.0f), useAnimation(false),
+      placeholderModel(NULL), animatedModel(NULL), animator(NULL) {}
 
 void ResetCamouflagedPursuer(CamouflagedPursuerState &pursuer) {
   pursuer.active = false;
@@ -27,6 +29,10 @@ void ResetCamouflagedPursuer(CamouflagedPursuerState &pursuer) {
   pursuer.movementSpeed = 0.0f;
   pursuer.position = glm::vec3(0.0f);
   pursuer.forward = glm::vec3(0.0f, 0.0f, -1.0f);
+  if (pursuer.animator != NULL) {
+    pursuer.animator->currentTime = 0.0f;
+    UpdateSalarymanAnimation(*pursuer.animator, 0.0f);
+  }
 }
 
 void ActivateCamouflagedPursuerForCorridor(
@@ -69,12 +75,19 @@ void UpdateCamouflagedPursuer(CamouflagedPursuerState &pursuer,
   const float movement_distance =
       std::min(pursuer.movementSpeed * delta_time, remaining_distance);
   pursuer.position += pursuer.forward * movement_distance;
+  if (pursuer.useAnimation && pursuer.animator != NULL)
+    UpdateSalarymanAnimation(*pursuer.animator, delta_time);
 }
 
 void DrawCamouflagedPursuer(const CamouflagedPursuerState &pursuer,
                             const Material &material) {
-  if (!pursuer.active || !pursuer.visible || pursuer.placeholderModel == NULL ||
-      !pursuer.placeholderModel->loaded)
+  const bool has_animated_model =
+      pursuer.useAnimation && pursuer.animatedModel != NULL &&
+      pursuer.animatedModel->loaded;
+  const bool has_placeholder = pursuer.placeholderModel != NULL &&
+                               pursuer.placeholderModel->loaded;
+  if (!pursuer.active || !pursuer.visible ||
+      (!has_animated_model && !has_placeholder))
     return;
 
   glm::vec3 forward = pursuer.forward;
@@ -90,7 +103,9 @@ void DrawCamouflagedPursuer(const CamouflagedPursuerState &pursuer,
   else
     right = glm::normalize(right);
   const glm::vec3 corrected_up = glm::normalize(glm::cross(forward, right));
-  const glm::vec3 p = pursuer.position;
+  glm::vec3 p = pursuer.position;
+  if (!pursuer.chasing)
+    p -= forward * kCamouflagedPursuerIdleWallEmbedDepth;
   const glm::mat4 model_matrix =
       Matrix(right.x, corrected_up.x, forward.x, p.x, right.y, corrected_up.y,
              forward.y, p.y, right.z, corrected_up.z, forward.z, p.z, 0.0f,
@@ -100,7 +115,13 @@ void DrawCamouflagedPursuer(const CamouflagedPursuerState &pursuer,
   glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE,
                      glm::value_ptr(model_matrix));
 
-  // TODO(camouflaged-pursuer-fbx): replace this static debug silhouette with
-  // the future dedicated animated FBX model and its independent animator.
-  DrawStaticModel(*pursuer.placeholderModel);
+  if (has_animated_model) {
+    const glm::mat4 animated_model_matrix =
+        model_matrix * pursuer.animatedModel->normalizationMatrix;
+    glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE,
+                       glm::value_ptr(animated_model_matrix));
+    DrawAnimatedModel(*pursuer.animatedModel);
+  } else {
+    DrawStaticModel(*pursuer.placeholderModel);
+  }
 }

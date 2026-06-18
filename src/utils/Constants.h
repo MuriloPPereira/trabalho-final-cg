@@ -37,9 +37,12 @@ inline constexpr float kNoSmokingSignStartDistance = 3.0f;
 inline constexpr float kNoSmokingSignWallOffset = 0.022f;
 inline constexpr float kNoSmokingSignLayerOffset = 0.00012f;
 inline constexpr int kNoSmokingAnomalySignCount = 260;
-inline constexpr float kCamouflagedPursuerEndWallClearance = 0.30f;
+inline constexpr float kCamouflagedPursuerEndWallClearance = 0.02f;
+inline constexpr float kCamouflagedPursuerIdleWallEmbedDepth = 0.20f;
 inline constexpr float kCamouflagedPursuerTriggerRadius = 8.0f;
 inline constexpr float kCamouflagedPursuerStopDistance = 0.75f;
+inline const char *const kCamouflagedPursuerFbxPath =
+    "assets/perseguidor.fbx";
 
 inline const char *const kPosterNames[kPosterCount] = {"poster_0", "poster_1", "poster_2", "poster_3"};
 

@@ -16,12 +16,17 @@ struct CamouflagedPursuerState {
   float movementSpeed;
   glm::vec3 position;
   glm::vec3 forward;
+  bool useAnimation;
   StaticModel *placeholderModel;
+  SalarymanAnimatedModel *animatedModel;
+  SalarymanAnimator *animator;
 
   CamouflagedPursuerState();
 };
 
 extern CamouflagedPursuerState g_CamouflagedPursuer;
+extern SalarymanAnimatedModel g_CamouflagedPursuerAnimatedModel;
+extern SalarymanAnimator g_CamouflagedPursuerAnimator;
 
 void ResetCamouflagedPursuer(CamouflagedPursuerState &pursuer);
 void ActivateCamouflagedPursuerForCorridor(

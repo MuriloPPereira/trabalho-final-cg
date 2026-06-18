@@ -127,9 +127,26 @@ int Application::Run(int argc, char *argv[]) {
                                 "assets/salarymanwalking.fbx"))
     std::exit(EXIT_FAILURE);
   g_SalarymanNPC.model = &g_SalarymanStaticModel;
-  // TODO(camouflaged-pursuer-fbx): bind the future dedicated animated FBX
-  // here instead of sharing the already-loaded salaryman static mesh.
   g_CamouflagedPursuer.placeholderModel = &g_SalarymanStaticModel;
+  g_CamouflagedPursuer.animatedModel = NULL;
+  g_CamouflagedPursuer.animator = NULL;
+  g_CamouflagedPursuer.useAnimation = false;
+  if (LoadTexturedAnimatedModel(
+          g_CamouflagedPursuerAnimatedModel, kCamouflagedPursuerFbxPath,
+          "data/wall.png", NULL, "camouflaged pursuer")) {
+    g_CamouflagedPursuerAnimator.model =
+        &g_CamouflagedPursuerAnimatedModel;
+    g_CamouflagedPursuerAnimator.currentTime = 0.0f;
+    UpdateSalarymanAnimation(g_CamouflagedPursuerAnimator, 0.0f);
+    g_CamouflagedPursuer.animatedModel =
+        &g_CamouflagedPursuerAnimatedModel;
+    g_CamouflagedPursuer.animator = &g_CamouflagedPursuerAnimator;
+    g_CamouflagedPursuer.useAnimation = true;
+    printf("Camouflaged pursuer render mode: animated (%s), wall skin\n",
+           kCamouflagedPursuerFbxPath);
+  } else {
+    printf("Camouflaged pursuer render mode: salaryman static fallback\n");
+  }
   g_SalarymanNPC.animatedModel = NULL;
   g_SalarymanNPC.animator = NULL;
   if (LoadSalarymanAnimatedModel(g_SalarymanAnimatedModel,
