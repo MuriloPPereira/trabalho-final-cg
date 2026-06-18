@@ -19,8 +19,8 @@ SalarymanNPC::SalarymanNPC()
     : active(false), corridorId(-1), position(0.0f, 0.0f, 0.0f),
       forward(0.0f, 0.0f, -1.0f), speed(2.5f), corridorLength(0.0f),
       corridorOrigin(0.0f, 0.0f, 0.0f), useAnimation(false), useBezier(false),
-      bezierT(0.0f), spawnGraceTimer(0.0f), p0(0.0f), p1(0.0f), p2(0.0f),
-      p3(0.0f), model(NULL), animatedModel(NULL), animator(NULL) {}
+      reverseBezier(false), bezierT(0.0f), spawnGraceTimer(0.0f), p0(0.0f), p1(0.0f), p2(0.0f),
+      p3(0.0f), model(NULL), animatedModel(NULL), animator(NULL), isGiant(false) {}
 
 void SpawnSalarymanForCorridor(SalarymanNPC &salaryman,
                                const CorridorContent &content,
@@ -37,6 +37,7 @@ void SpawnSalarymanForCorridor(SalarymanNPC &salaryman,
   const glm::vec3 spawn_position = content.salarymanSpawnPosition;
   salaryman.active = true;
   salaryman.corridorId = frame.logicalCorridorId;
+  salaryman.isGiant = (content.anomalyType == kCorridorAnomalyGiantNPC);
   // A velocidade agora puxa do construtor, ou pode ser configurada dinamicamente
   salaryman.corridorLength = frame.corridorLength;
   salaryman.corridorOrigin =
@@ -199,9 +200,10 @@ void DrawSalarymanNPC(const SalarymanNPC &salaryman, const Material &material) {
 
   const glm::vec3 corrected_up = glm::normalize(glm::cross(forward, right));
   const glm::vec3 p = salaryman.position;
+  float scale = salaryman.isGiant ? 1.5f : 1.0f;
   const glm::mat4 model_matrix =
-      Matrix(right.x, corrected_up.x, forward.x, p.x, right.y, corrected_up.y,
-             forward.y, p.y, right.z, corrected_up.z, forward.z, p.z, 0.0f,
+      Matrix(right.x * scale, corrected_up.x * scale, forward.x * scale, p.x, right.y * scale, corrected_up.y * scale,
+             forward.y * scale, p.y, right.z * scale, corrected_up.z * scale, forward.z * scale, p.z, 0.0f,
              0.0f, 0.0f, 1.0f);
 
   ApplyMaterial(material);

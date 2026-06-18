@@ -46,6 +46,8 @@ const char *CorridorAnomalyTypeName(CorridorAnomalyType anomaly_type) {
     return "no_smoking_signs";
   case kCorridorAnomalyCamouflagedPursuer:
     return "camouflaged_pursuer";
+  case kCorridorAnomalyGiantNPC:
+    return "giant_npc";
   default:
     return "unknown";
   }

@@ -23,6 +23,7 @@ struct SalarymanNPC {
   StaticModel *model;
   SalarymanAnimatedModel *animatedModel;
   SalarymanAnimator *animator;
+  bool isGiant;
   SalarymanNPC();
 };
 
