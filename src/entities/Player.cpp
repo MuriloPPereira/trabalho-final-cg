@@ -80,6 +80,10 @@ void InitializePlayerCharacterFromCamera(const glm::vec4 &camera_position,
   g_PlayerCharacter.forward = forward;
 }
 
+float GetPlayerThirdPersonShiftSprintSpeed() {
+  return g_PlayerCharacter.speed * kThirdPersonShiftSprintMultiplier;
+}
+
 void UpdatePlayerCharacterAnimation(PlayerCharacter &player,
                                     float delta_time) {
   if (!player.loaded || !player.useAnimation || player.animator == NULL)

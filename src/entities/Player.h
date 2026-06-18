@@ -30,6 +30,7 @@ extern PlayerCharacter g_PlayerCharacter;
 bool LoadPlayerCharacterModel();
 void InitializePlayerCharacterFromCamera(const glm::vec4 &camera_position,
                                          float camera_yaw);
+float GetPlayerThirdPersonShiftSprintSpeed();
 void UpdatePlayerCharacterAnimation(PlayerCharacter &player, float delta_time);
 void DrawPlayerCharacter(const PlayerCharacter &player,
                          const Material &material);

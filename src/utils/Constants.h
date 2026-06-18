@@ -10,6 +10,7 @@ inline constexpr bool kCorridorDebugLogsEnabled = (ENABLE_CORRIDOR_DEBUG_LOGS !=
 inline constexpr int kPosterCount = 4;
 inline constexpr int kMaxLights = 30;
 inline constexpr int kMaxSalarymanBones = 100;
+inline constexpr float kThirdPersonShiftSprintMultiplier = 2.0f;
 
 inline constexpr float kCorridorHalfWidth = 2.0f;
 inline constexpr float kCorridorHeight = 3.0f;
@@ -36,6 +37,9 @@ inline constexpr float kNoSmokingSignStartDistance = 3.0f;
 inline constexpr float kNoSmokingSignWallOffset = 0.022f;
 inline constexpr float kNoSmokingSignLayerOffset = 0.00012f;
 inline constexpr int kNoSmokingAnomalySignCount = 260;
+inline constexpr float kCamouflagedPursuerEndWallClearance = 0.30f;
+inline constexpr float kCamouflagedPursuerTriggerRadius = 8.0f;
+inline constexpr float kCamouflagedPursuerStopDistance = 0.75f;
 
 inline const char *const kPosterNames[kPosterCount] = {"poster_0", "poster_1", "poster_2", "poster_3"};
 

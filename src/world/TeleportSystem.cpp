@@ -1,5 +1,6 @@
 #include "world/TeleportSystem.h"
 
+#include "entities/CamouflagedPursuer.h"
 #include "entities/NPC.h"
 #include "world/Corridor.h"
 #include <glm/vec2.hpp>
@@ -63,6 +64,8 @@ void UpdateTeleportSystem(const CollisionResult &col, glm::vec4 &camera_position
       TrySpawnSalarymanForCorridorContent(g_CurrentCorridorInstance.content,
                                           player_position,
                                           "connector_midpoint");
+      ActivateCamouflagedPursuerForCorridor(
+          g_CamouflagedPursuer, g_CurrentCorridorInstance.content);
       LogCorridorTransition("connector_midpoint", transition_direction,
                             g_CurrentCorridorInstance.content, player_position);
       g_PreparedNextCorridorId = -1;

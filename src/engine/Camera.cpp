@@ -87,7 +87,8 @@ void UpdateCameraFromInput(GLFWwindow *window, float delta_time) {
   const bool sprint_active =
       glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
       glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
-  const float sprint_multiplier = sprint_active ? 2.0f : 1.0f;
+  const float sprint_multiplier =
+      sprint_active ? kThirdPersonShiftSprintMultiplier : 1.0f;
 
   if (g_UseThirdPersonCamera) {
     g_PlayerCharacter.locomotionScale = sprint_multiplier;
@@ -115,8 +116,10 @@ void UpdateCameraFromInput(GLFWwindow *window, float delta_time) {
     const glm::vec3 previous_player_position = g_PlayerCharacter.position;
     if (input_requests_movement) {
       movement = glm::normalize(movement);
-      g_PlayerCharacter.position +=
-          movement * g_PlayerCharacter.speed * sprint_multiplier * delta_time;
+      const float movement_speed =
+          sprint_active ? GetPlayerThirdPersonShiftSprintSpeed()
+                        : g_PlayerCharacter.speed;
+      g_PlayerCharacter.position += movement * movement_speed * delta_time;
     }
 
     const float player_radius = 0.15f;

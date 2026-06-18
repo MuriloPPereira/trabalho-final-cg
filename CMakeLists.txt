@@ -14,6 +14,7 @@ set(SOURCES
   src/engine/Shader.cpp
   src/engine/Texture.cpp
   src/entities/AnimatedModel.cpp
+  src/entities/CamouflagedPursuer.cpp
   src/entities/NPC.cpp
   src/entities/Player.cpp
   src/rendering/Mesh.cpp

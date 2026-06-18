@@ -44,6 +44,8 @@ const char *CorridorAnomalyTypeName(CorridorAnomalyType anomaly_type) {
     return "identical_posters";
   case kCorridorAnomalyNoSmokingSigns:
     return "no_smoking_signs";
+  case kCorridorAnomalyCamouflagedPursuer:
+    return "camouflaged_pursuer";
   default:
     return "unknown";
   }
@@ -358,6 +360,12 @@ CorridorContent GenerateCorridorContent(int corridor_id,
   content.anomalyType = anomaly_type;
 
   const CorridorContentFrame &frame = content.frame;
+  content.camouflagedPursuerSpawnPosition =
+      frame.contentOrigin +
+      frame.contentForward *
+          (frame.corridorLength + kCornerLength -
+           kCamouflagedPursuerEndWallClearance);
+  content.camouflagedPursuerSpawnPosition.y = 0.0f;
   for (int slot = 0; slot < kPosterCount; ++slot) {
     const float poster_distance = (slot + 1) * spacing;
 

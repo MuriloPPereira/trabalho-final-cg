@@ -1,0 +1,35 @@
+#ifndef ENTITIES_CAMOUFLAGEDPURSUER_H
+#define ENTITIES_CAMOUFLAGEDPURSUER_H
+
+#include "entities/AnimatedModel.h"
+#include "rendering/Material.h"
+#include "world/Corridor.h"
+
+#include <glm/vec3.hpp>
+
+struct CamouflagedPursuerState {
+  bool active;
+  bool visible;
+  bool chasing;
+  int corridorId;
+  float triggerRadius;
+  float movementSpeed;
+  glm::vec3 position;
+  glm::vec3 forward;
+  StaticModel *placeholderModel;
+
+  CamouflagedPursuerState();
+};
+
+extern CamouflagedPursuerState g_CamouflagedPursuer;
+
+void ResetCamouflagedPursuer(CamouflagedPursuerState &pursuer);
+void ActivateCamouflagedPursuerForCorridor(
+    CamouflagedPursuerState &pursuer, const CorridorContent &content);
+void UpdateCamouflagedPursuer(CamouflagedPursuerState &pursuer,
+                              float delta_time,
+                              const glm::vec3 &player_position);
+void DrawCamouflagedPursuer(const CamouflagedPursuerState &pursuer,
+                            const Material &material);
+
+#endif

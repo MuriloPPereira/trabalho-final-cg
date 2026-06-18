@@ -12,6 +12,7 @@ enum CorridorAnomalyType {
   kCorridorAnomalyNone = 0,
   kCorridorAnomalyIdenticalPosters,
   kCorridorAnomalyNoSmokingSigns,
+  kCorridorAnomalyCamouflagedPursuer,
   kCorridorAnomalyCount
 };
 
@@ -67,6 +68,7 @@ struct CorridorContent {
   std::vector<glm::vec3> lightPositions;
   glm::vec3 salarymanSpawnPosition;
   glm::vec3 salarymanForward;
+  glm::vec3 camouflagedPursuerSpawnPosition;
   bool hasAnomaly;
   CorridorAnomalyType anomalyType;
 };

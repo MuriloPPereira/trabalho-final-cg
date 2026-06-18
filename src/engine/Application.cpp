@@ -5,6 +5,7 @@
 #include "engine/Renderer.h"
 #include "engine/Shader.h"
 #include "engine/Texture.h"
+#include "entities/CamouflagedPursuer.h"
 #include "entities/NPC.h"
 #include "entities/Player.h"
 #include "matrices.h"
@@ -126,6 +127,9 @@ int Application::Run(int argc, char *argv[]) {
                                 "assets/salarymanwalking.fbx"))
     std::exit(EXIT_FAILURE);
   g_SalarymanNPC.model = &g_SalarymanStaticModel;
+  // TODO(camouflaged-pursuer-fbx): bind the future dedicated animated FBX
+  // here instead of sharing the already-loaded salaryman static mesh.
+  g_CamouflagedPursuer.placeholderModel = &g_SalarymanStaticModel;
   g_SalarymanNPC.animatedModel = NULL;
   g_SalarymanNPC.animator = NULL;
   if (LoadSalarymanAnimatedModel(g_SalarymanAnimatedModel,
@@ -152,6 +156,8 @@ int Application::Run(int argc, char *argv[]) {
     TrySpawnSalarymanForCorridorContent(g_CurrentCorridorInstance.content,
                                         initial_player_position,
                                         "initial_corridor");
+    ActivateCamouflagedPursuerForCorridor(
+        g_CamouflagedPursuer, g_CurrentCorridorInstance.content);
   }
 
   LogCorridorWindow("initial", 0);
@@ -218,6 +224,10 @@ int Application::Run(int argc, char *argv[]) {
   player_material.specular_strength = 0.22f;
   player_material.shininess = 36.0f;
 
+  Material camouflaged_pursuer_material = wall_material;
+  camouflaged_pursuer_material.specular_strength = 0.12f;
+  camouflaged_pursuer_material.shininess = 18.0f;
+
   Material doorway_placeholder_material;
   doorway_placeholder_material.diffuse_texture_unit =
       kDoorwayPlaceholderTextureUnit;
@@ -276,6 +286,13 @@ int Application::Run(int argc, char *argv[]) {
     glm::vec4 camera_view_vector = camera_lookat_l - camera_position_c;
     glm::vec4 camera_up_vector = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
     UpdateSalarymanNPC(g_SalarymanNPC, delta_time, camera_position_c);
+    const glm::vec3 pursuer_target =
+        g_UseThirdPersonCamera
+            ? g_PlayerCharacter.position
+            : glm::vec3(camera_position_c.x, camera_position_c.y,
+                        camera_position_c.z);
+    UpdateCamouflagedPursuer(g_CamouflagedPursuer, delta_time,
+                             pursuer_target);
 
     // Computamos a matriz "View" utilizando os parâmetros da câmera para
     // definir o sistema de coordenadas da câmera.  Veja slides 2-14, 184-190
@@ -327,6 +344,8 @@ int Application::Run(int argc, char *argv[]) {
                           poster_materials, no_smoking_sign_material,
                           doorway_placeholder_material);
     DrawSalarymanNPC(g_SalarymanNPC, salaryman_material);
+    DrawCamouflagedPursuer(g_CamouflagedPursuer,
+                           camouflaged_pursuer_material);
     if (g_UseThirdPersonCamera)
       DrawPlayerCharacter(g_PlayerCharacter, player_material);
 
