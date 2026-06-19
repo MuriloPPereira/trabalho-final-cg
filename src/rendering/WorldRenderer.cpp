@@ -77,6 +77,8 @@ std::vector<PointLight> CreateCorridorLights() {
 }
 
 void DrawCorridorTreadmill(const Material &floor_material,
+                           const Material &tactile_straight_material,
+                           const Material &tactile_dots_material,
                            const Material &ceiling_material,
                            const Material &wall_material,
                            const std::vector<Material> &poster_materials,
@@ -232,9 +234,44 @@ void DrawCorridorTreadmill(const Material &floor_material,
               DrawVirtualObject("doorway_placeholder_panel");
             }
           }
+
+          // Draw tactile paving for straight segments
+          glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(corridor_model));
+          float tts = 0.3f;
+          Material tactile_straight_inst = tactile_straight_material;
+          tactile_straight_inst.uv_scale.y *= segment_length_scale;
+          tactile_straight_inst.uv_offset = glm::vec2(0.0f, segment_start_distance / tts);
+          
+          const bool is_anomalous_floor =
+              (corridor_instance.content.anomalyType == kCorridorAnomalyModifiedFloor);
+              
+          ApplyMaterial(tactile_straight_inst);
+          DrawVirtualObject("corridor_tactile_straight_lines");
+          
+          if (is_anomalous_floor && draw_posters) {
+              float segment_length = kCorridorLength * segment_length_scale;
+              int num_squares = (int)(segment_length / 10.0f);
+              for (int i = 1; i <= num_squares; ++i) {
+                  float z_center = - (i * 10.0f);
+                  // Ensure square fits in segment
+                  if (z_center - 1.0f < -segment_length) continue;
+                  
+                  glm::mat4 square_model = corridor_model * 
+                      Matrix_Translate(0.0f, 0.0f, z_center / segment_length_scale) * 
+                      Matrix_Scale(1.0f, 1.0f, 1.0f / segment_length_scale);
+                  glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(square_model));
+                  
+                  Material square_dots_inst = tactile_dots_material;
+                  // UVs of square are not scaled by segment scale because we cancelled it out!
+                  // Absolute offset required to sync with the moving treadmill:
+                  square_dots_inst.uv_offset.y = (segment_start_distance - z_center) / tts;
+                  
+                  ApplyMaterial(square_dots_inst);
+                  DrawVirtualObject("corridor_tactile_anomaly_square");
+              }
+          }
         };
 
-    Material corner_floor_material = floor_material;
     Material corner_ceiling_material = ceiling_material;
     Material corner_wall_material = wall_material;
 
@@ -253,12 +290,12 @@ void DrawCorridorTreadmill(const Material &floor_material,
                            const char *floor_name, const char *ceiling_name,
                            const char *wall_a_name, const char *wall_b_name,
                            float length_offset, bool wall_a_uses_length_axis,
-                           bool wall_b_uses_length_axis) {
+                           bool wall_b_uses_length_axis, const std::string &corner_prefix) {
       glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE,
                          glm::value_ptr(corner_model));
 
       ApplyMaterial(make_length_offset_material(
-          corner_floor_material, length_offset, false, kFloorTileSize));
+          floor_material, length_offset, false, kFloorTileSize));
       DrawVirtualObject(floor_name);
 
       ApplyMaterial(make_length_offset_material(
@@ -274,6 +311,16 @@ void DrawCorridorTreadmill(const Material &floor_material,
           corner_wall_material, wall_b_uses_length_axis ? length_offset : 0.0f,
           true, kWallTextureTileSize));
       DrawVirtualObject(wall_b_name);
+
+      float tts = 0.3f;
+      ApplyMaterial(make_length_offset_material(
+          tactile_dots_material, length_offset, false, tts));
+      DrawVirtualObject((corner_prefix + "_tactile_dots").c_str());
+      
+      ApplyMaterial(make_length_offset_material(
+          tactile_straight_material, length_offset, false, tts));
+      DrawVirtualObject((corner_prefix + "_tactile_line_in").c_str());
+      DrawVirtualObject((corner_prefix + "_tactile_line_out").c_str());
     };
 
     // (1) Modular block (tile): corredor reto + quina esquerda + conector +
@@ -301,7 +348,7 @@ void DrawCorridorTreadmill(const Material &floor_material,
       glm::mat4 m = base_transform * Matrix_Translate(0.0f, 0.0f, turn_z0);
       draw_corner(m, "corner_left_floor", "corner_left_ceiling",
                   "corner_left_wall_back", "corner_left_wall_right",
-                  corner1_start, false, true);
+                  corner1_start, false, true, "corner_left");
 
       // Conector curto (eixo -X): base_transform * T(...) * R_y(+90°) *
       // S(...).
@@ -319,7 +366,7 @@ void DrawCorridorTreadmill(const Material &floor_material,
       m = base_transform * Matrix_Translate(exit_turn_x, 0.0f, turn_z0);
       draw_corner(m, "corner_right_floor", "corner_right_ceiling",
                   "corner_right_wall_front", "corner_right_wall_left",
-                  corner2_start, false, true);
+                  corner2_start, false, true, "corner_right");
     };
 
     // (2) 3-Tile Treadmill: side blocks are the canonical previous/next

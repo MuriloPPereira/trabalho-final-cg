@@ -48,6 +48,8 @@ const char *CorridorAnomalyTypeName(CorridorAnomalyType anomaly_type) {
     return "camouflaged_pursuer";
   case kCorridorAnomalyGiantNPC:
     return "giant_npc";
+  case kCorridorAnomalyModifiedFloor:
+    return "modified_floor";
   default:
     return "unknown";
   }
@@ -941,6 +943,85 @@ void BuildCorridorAndAddToVirtualScene() {
            glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, 1.0f, 0.0f),
            kWallTextureTileSize, kWallTextureTileSize);
 
+  // --- TACTILE PAVING GEOMETRY ---
+  const float ty = 0.005f;
+  const float thw = 0.15f;
+  const float tts = 0.3f;
+
+  add_quad("corridor_tactile_straight_lines", glm::vec3(-thw, ty, z0),
+           glm::vec3(thw, ty, z0), glm::vec3(thw, ty, z1),
+           glm::vec3(-thw, ty, z1), glm::vec3(0.0f, 1.0f, 0.0f),
+           glm::vec3(-thw, ty, z0), glm::vec3(1.0f, 0.0f, 0.0f),
+           glm::vec3(0.0f, 0.0f, -1.0f), tts, tts);
+
+  // Generate anomalous tactile paving
+  struct TactileVertex {
+    float px, py, pz, pw;
+    float nx, ny, nz, nw;
+    float u, v;
+  };
+  auto build_tactile_mesh = [&](const std::string& name, const std::vector<glm::vec4>& quads) {
+      std::vector<TactileVertex> vertices;
+      std::vector<GLuint> indices;
+      GLuint vao; glGenVertexArrays(1, &vao); glBindVertexArray(vao);
+      
+      float local_ty = ty;
+      if (name == "corridor_tactile_anomaly_square") local_ty = ty + 0.001f; // Elevate slightly to prevent z-fighting with the straight line
+      
+      glm::vec3 bbox_min(9999.0f), bbox_max(-9999.0f);
+      for(size_t i=0; i<quads.size(); ++i) {
+          float cx = quads[i].x; float cz = quads[i].y;
+          float hw = quads[i].z; float hl = quads[i].w;
+          glm::vec3 p0(cx - hw, local_ty, cz + hl);
+          glm::vec3 p1(cx + hw, local_ty, cz + hl);
+          glm::vec3 p2(cx + hw, local_ty, cz - hl);
+          glm::vec3 p3(cx - hw, local_ty, cz - hl);
+          
+          auto push_v = [&](glm::vec3 p, float u, float v) {
+              vertices.push_back({p.x, p.y, p.z, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, u, v});
+              bbox_min = glm::min(bbox_min, p);
+              bbox_max = glm::max(bbox_max, p);
+          };
+          // Map U to world X, V to world -Z for seamless tiling
+          push_v(p0, p0.x/tts, -p0.z/tts); 
+          push_v(p1, p1.x/tts, -p1.z/tts); 
+          push_v(p2, p2.x/tts, -p2.z/tts); 
+          push_v(p3, p3.x/tts, -p3.z/tts);
+          GLuint base = i * 4;
+          indices.push_back(base+0); indices.push_back(base+1); indices.push_back(base+2);
+          indices.push_back(base+0); indices.push_back(base+2); indices.push_back(base+3);
+      }
+      
+      GLuint vbo, ebo;
+      glGenBuffers(1, &vbo); glBindBuffer(GL_ARRAY_BUFFER, vbo);
+      glBufferData(GL_ARRAY_BUFFER, vertices.size()*sizeof(TactileVertex), vertices.data(), GL_STATIC_DRAW);
+      glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(TactileVertex), (void*)0); glEnableVertexAttribArray(0);
+      glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(TactileVertex), (void*)(4*sizeof(float))); glEnableVertexAttribArray(1);
+      glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(TactileVertex), (void*)(8*sizeof(float))); glEnableVertexAttribArray(2);
+      glGenBuffers(1, &ebo); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+      glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size()*sizeof(GLuint), indices.data(), GL_STATIC_DRAW);
+      glBindVertexArray(vertex_array_object_id);
+      
+      SceneObject obj; obj.name = name; obj.first_index = 0; obj.num_indices = indices.size();
+      obj.rendering_mode = GL_TRIANGLES; obj.vertex_array_object_id = vao;
+      obj.bbox_min = bbox_min; obj.bbox_max = bbox_max;
+      g_VirtualScene[name] = obj;
+  };
+
+  std::vector<glm::vec4> anomaly_lines;
+  std::vector<glm::vec4> square_quads;
+  
+  // Create a 2x2m square frame of dots centered at origin
+  // Top and bottom edges
+  square_quads.push_back(glm::vec4(0.0f, -1.0f, 1.0f + thw, thw));
+  square_quads.push_back(glm::vec4(0.0f, 1.0f, 1.0f + thw, thw));
+  // Left and right edges
+  square_quads.push_back(glm::vec4(-1.0f, 0.0f, thw, 1.0f - thw));
+  square_quads.push_back(glm::vec4(1.0f, 0.0f, thw, 1.0f - thw));
+  
+  build_tactile_mesh("corridor_tactile_anomaly_square", square_quads);
+
+
   const float doorway_y_low = 0.0f;
   const float doorway_y_high = kDoorwayOpeningHeight;
   const float right_wall_x = +half_width;
@@ -1291,6 +1372,50 @@ void BuildCornerAndAddToVirtualScene() {
                glm::vec3(hw, 0.0f, z0), glm::vec3(0.0f, 0.0f, -1.0f),
                glm::vec3(0.0f, 1.0f, 0.0f), kWallTextureTileSize,
                kWallTextureTileSize);
+
+    // --- TACTILE PAVING CORNERS ---
+    const float ty = 0.005f;
+    const float thw = 0.15f;
+    const float tts = 0.3f;
+    const float center_z = z1 / 2.0f; // -2.0f
+
+    // Center dot square
+    add_quad(prefix + "_tactile_dots", glm::vec3(-thw, ty, center_z + thw),
+             glm::vec3(thw, ty, center_z + thw), glm::vec3(thw, ty, center_z - thw),
+             glm::vec3(-thw, ty, center_z - thw), glm::vec3(0.0f, 1.0f, 0.0f),
+             glm::vec3(-thw, ty, center_z + thw), glm::vec3(1.0f, 0.0f, 0.0f),
+             glm::vec3(0.0f, 0.0f, -1.0f), tts, tts);
+
+    // Line from Z axis to center
+    if (prefix == "corner_left") {
+        add_quad(prefix + "_tactile_line_in", glm::vec3(-thw, ty, z0),
+                 glm::vec3(thw, ty, z0), glm::vec3(thw, ty, center_z + thw),
+                 glm::vec3(-thw, ty, center_z + thw), glm::vec3(0.0f, 1.0f, 0.0f),
+                 glm::vec3(-thw, ty, z0), glm::vec3(1.0f, 0.0f, 0.0f),
+                 glm::vec3(0.0f, 0.0f, -1.0f), tts, tts);
+    } else if (prefix == "corner_right") {
+        // Line from center to z1 (starts new corridor)
+        add_quad(prefix + "_tactile_line_in", glm::vec3(-thw, ty, center_z - thw),
+                 glm::vec3(thw, ty, center_z - thw), glm::vec3(thw, ty, z1),
+                 glm::vec3(-thw, ty, z1), glm::vec3(0.0f, 1.0f, 0.0f),
+                 glm::vec3(-thw, ty, center_z - thw), glm::vec3(1.0f, 0.0f, 0.0f),
+                 glm::vec3(0.0f, 0.0f, -1.0f), tts, tts);
+    }
+
+    // Line from center to left or right connector
+    if (prefix == "corner_left") {
+        add_quad(prefix + "_tactile_line_out", glm::vec3(-thw, ty, center_z + thw),
+                 glm::vec3(-thw, ty, center_z - thw), glm::vec3(-hw, ty, center_z - thw),
+                 glm::vec3(-hw, ty, center_z + thw), glm::vec3(0.0f, 1.0f, 0.0f),
+                 glm::vec3(-hw, ty, center_z + thw), glm::vec3(0.0f, 0.0f, -1.0f),
+                 glm::vec3(-1.0f, 0.0f, 0.0f), tts, tts);
+    } else if (prefix == "corner_right") {
+        add_quad(prefix + "_tactile_line_out", glm::vec3(hw, ty, center_z + thw),
+                 glm::vec3(hw, ty, center_z - thw), glm::vec3(thw, ty, center_z - thw),
+                 glm::vec3(thw, ty, center_z + thw), glm::vec3(0.0f, 1.0f, 0.0f),
+                 glm::vec3(thw, ty, center_z + thw), glm::vec3(0.0f, 0.0f, -1.0f),
+                 glm::vec3(-1.0f, 0.0f, 0.0f), tts, tts);
+    }
   };
 
   // Quina 1 (Vira à esquerda): Aberta na frente (para o Corredor 1) e aberta

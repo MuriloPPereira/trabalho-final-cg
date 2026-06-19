@@ -117,6 +117,10 @@ int Application::Run(int argc, char *argv[]) {
   CreateSolidColorTexture(178, 168, 150); // 8
   const GLuint kDoorwayPlaceholderTextureUnit = g_NumLoadedTextures;
   CreateSolidColorTexture(0, 0, 0); // 9
+  const GLuint kTactileStraightTextureUnit = g_NumLoadedTextures;
+  LoadTextureImage("tactile_straight.jpg", GL_MIRRORED_REPEAT, GL_MIRRORED_REPEAT); // 10
+  const GLuint kTactileDotsTextureUnit = g_NumLoadedTextures;
+  LoadTextureImage("tactile_dots.jpg", GL_MIRRORED_REPEAT, GL_MIRRORED_REPEAT); // 11
 
   BuildCorridorAndAddToVirtualScene();
   BuildCornerAndAddToVirtualScene();
@@ -199,6 +203,14 @@ int Application::Run(int argc, char *argv[]) {
   floor_material.ambient_strength = 0.04f;
   floor_material.uv_scale = glm::vec2(1.0f, 1.0f);
   floor_material.uv_offset = glm::vec2(0.0f, 0.0f);
+
+  Material tactile_straight_material = floor_material;
+  tactile_straight_material.diffuse_texture_unit = kTactileStraightTextureUnit;
+  tactile_straight_material.uv_scale = glm::vec2(1.0f, 1.0f);
+
+  Material tactile_dots_material = floor_material;
+  tactile_dots_material.diffuse_texture_unit = kTactileDotsTextureUnit;
+  tactile_dots_material.uv_scale = glm::vec2(1.0f, 1.0f);
 
   Material ceiling_material;
   ceiling_material.diffuse_texture_unit = kCeilingTextureUnit;
@@ -357,7 +369,7 @@ int Application::Run(int argc, char *argv[]) {
                 camera_position_c.y, camera_position_c.z, camera_position_c.w);
     SetPointLights(corridor_lights);
 
-    DrawCorridorTreadmill(floor_material, ceiling_material, wall_material,
+    DrawCorridorTreadmill(floor_material, tactile_straight_material, tactile_dots_material, ceiling_material, wall_material,
                           poster_materials, no_smoking_sign_material,
                           doorway_placeholder_material);
     DrawSalarymanNPC(g_SalarymanNPC, salaryman_material);
