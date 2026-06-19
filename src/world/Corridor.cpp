@@ -192,6 +192,8 @@ CorridorState MakeCorridorState(int id) {
   state.id = id;
   state.has_anomaly = false;
   state.anomaly_type = kCorridorAnomalyNone;
+  state.is_tutorial = false;
+  state.entrance_progress = g_CurrentExitLevel;
   return state;
 }
 
@@ -236,9 +238,11 @@ void InitializeCorridorLifecycle() {
   g_InConnectorTransition = false;
   g_ConnectorMidpointCrossed = false;
   g_LastPlayerSection = -1;
+  CorridorState tutorial_state = MakeCorridorState(g_CurrentCorridorSequenceId);
+  tutorial_state.is_tutorial = true;
+  tutorial_state.entrance_progress = -1;
   g_CurrentCorridorInstance = CreateCorridorInstanceFromState(
-      MakeCorridorState(g_CurrentCorridorSequenceId),
-      glm::vec3(0.0f, 0.0f, -1.0f));
+      tutorial_state, glm::vec3(0.0f, 0.0f, -1.0f));
   RefreshCandidateCorridorStates();
 }
 
@@ -247,25 +251,36 @@ void ActivateNewLogicalCorridor(int physical_side) {
     return;
 
 
-  float player_moved_z = -(float)physical_side;
-
-  // O jogador seguiu em frente se ele andou na mesma direção que a frente do corredor aponta
-  bool went_forward = (player_moved_z == g_CurrentCorridorInstance.content.frame.contentForward.z);
-  bool had_anomaly = g_CurrentCorridorInstance.state.has_anomaly;
-
-  bool is_correct =
-      (went_forward && !had_anomaly) || (!went_forward && had_anomaly);
-
-  if (is_correct) {
-    g_CurrentExitLevel++;
-    printf("\n--- CORRECT -> EXIT LEVEL: %d ---\n\n", g_CurrentExitLevel);
+  if (g_CurrentCorridorInstance.state.is_tutorial) {
+    printf("\n--- REFERENCE CORRIDOR COMPLETE -> EXIT LEVEL: 0 ---\n\n");
   } else {
-    g_CurrentExitLevel = 0;
-    printf("\n--- INCORRECT -> EXIT LEVEL: %d ---\n\n", g_CurrentExitLevel);
-  }
+    const float player_moved_z = -static_cast<float>(physical_side);
 
-  if (g_CurrentExitLevel >= 8)
-    printf("\n*** YOU WIN! You reached Exit 8! ***\n\n");
+    // Continuing forward is correct only in a normal corridor; turning back
+    // is correct only when the current corridor contains an anomaly.
+    const bool went_forward =
+        (player_moved_z ==
+         g_CurrentCorridorInstance.content.frame.contentForward.z);
+    const bool had_anomaly = g_CurrentCorridorInstance.state.has_anomaly;
+    const bool is_correct =
+        (went_forward && !had_anomaly) || (!went_forward && had_anomaly);
+    const bool crossed_exit_8_corridor =
+        g_CurrentCorridorInstance.state.entrance_progress == 8;
+
+    if (is_correct) {
+      if (crossed_exit_8_corridor) {
+        printf("\n*** YOU WIN! You crossed Exit 8! ***\n\n");
+      } else {
+        g_CurrentExitLevel = std::min(g_CurrentExitLevel + 1, 8);
+        printf("\n--- CORRECT -> EXIT LEVEL: %d ---\n\n",
+               g_CurrentExitLevel);
+      }
+    } else {
+      g_CurrentExitLevel = 0;
+      printf("\n--- INCORRECT -> EXIT LEVEL: %d ---\n\n",
+             g_CurrentExitLevel);
+    }
+  }
 
   fflush(stdout);
 
@@ -273,6 +288,15 @@ void ActivateNewLogicalCorridor(int physical_side) {
   g_CurrentCorridorInstance = (physical_side < 0)
                                   ? g_NegativeCandidateCorridorInstance
                                   : g_PositiveCandidateCorridorInstance;
+  if (g_CurrentExitLevel == 8) {
+    const int exit_corridor_id = g_CurrentCorridorInstance.state.id;
+    const glm::vec3 exit_corridor_forward =
+        g_CurrentCorridorInstance.content.frame.contentForward;
+    g_CurrentCorridorInstance = CreateNewCorridorInstance(
+        exit_corridor_id, exit_corridor_forward, kCorridorAnomalyNone);
+  }
+  g_CurrentCorridorInstance.state.is_tutorial = false;
+  g_CurrentCorridorInstance.state.entrance_progress = g_CurrentExitLevel;
 
   if (kCorridorDebugLogsEnabled) {
     if (g_CurrentCorridorInstance.state.has_anomaly) {

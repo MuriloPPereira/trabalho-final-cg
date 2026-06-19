@@ -83,7 +83,8 @@ void DrawCorridorTreadmill(const Material &floor_material,
                            const Material &wall_material,
                            const std::vector<Material> &poster_materials,
                            const Material &no_smoking_sign_material,
-                           const Material &doorway_placeholder_material) {
+                           const Material &doorway_placeholder_material,
+                           const std::vector<Material> &exit_sign_materials) {
   const CanonicalCorridorLayout corridor_layout = GetCanonicalCorridorLayout();
   const float connector_length = corridor_layout.connector_length;
   const glm::vec2 block_offset = corridor_layout.block_offset;
@@ -342,6 +343,33 @@ void DrawCorridorTreadmill(const Material &floor_material,
                              corridor_instance, floor_material,
                              ceiling_material, wall_material, straight_start,
                              full_segment_scale);
+
+      if (!corridor_instance.state.is_tutorial &&
+          corridor_instance.state.entrance_progress >= 0 &&
+          corridor_instance.state.entrance_progress <
+              static_cast<int>(exit_sign_materials.size())) {
+        const CorridorContentFrame &frame = corridor_instance.content.frame;
+        const glm::vec3 sign_normal = frame.contentRight;
+        const glm::vec3 sign_up(0.0f, kExitSignHeight, 0.0f);
+        const glm::vec3 sign_width = -frame.contentForward * kExitSignWidth;
+        glm::vec3 sign_position =
+            frame.contentOrigin - frame.contentRight * kCorridorHalfWidth +
+            sign_normal * kExitSignWallOffset +
+            frame.contentForward * kExitSignEntranceDistance;
+        sign_position.y = kExitSignBottomY;
+
+        const glm::mat4 sign_basis = Matrix(
+            sign_normal.x, sign_up.x, sign_width.x, sign_position.x,
+            sign_normal.y, sign_up.y, sign_width.y, sign_position.y,
+            sign_normal.z, sign_up.z, sign_width.z, sign_position.z, 0.0f,
+            0.0f, 0.0f, 1.0f);
+        const glm::mat4 sign_model = content_placement * sign_basis;
+        glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE,
+                           glm::value_ptr(sign_model));
+        ApplyMaterial(exit_sign_materials[
+            corridor_instance.state.entrance_progress]);
+        DrawVirtualObject("doorway_placeholder_panel");
+      }
 
       // Quina esquerda no final do corredor: base_transform *
       // T(0,0,kCorridorZ1).

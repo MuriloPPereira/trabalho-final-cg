@@ -20,6 +20,7 @@
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #include <glm/gtc/type_ptr.hpp>
+#include <string>
 #include <vector>
 
 namespace {
@@ -153,6 +154,14 @@ int Application::Run(int argc, char *argv[]) {
   LoadTextureImage("tactile_straight.jpg", GL_MIRRORED_REPEAT, GL_MIRRORED_REPEAT); // 10
   const GLuint kTactileDotsTextureUnit = g_NumLoadedTextures;
   LoadTextureImage("tactile_dots.jpg", GL_MIRRORED_REPEAT, GL_MIRRORED_REPEAT); // 11
+  std::vector<GLuint> exit_sign_texture_units;
+  exit_sign_texture_units.reserve(kExitSignCount);
+  for (int progress = 0; progress < kExitSignCount; ++progress) {
+    exit_sign_texture_units.push_back(g_NumLoadedTextures);
+    const std::string filename =
+        "exit_sign_" + std::to_string(progress) + "_clean.png";
+    LoadTextureImage(filename.c_str(), GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE);
+  }
 
   BuildCorridorAndAddToVirtualScene();
   BuildCornerAndAddToVirtualScene();
@@ -298,6 +307,15 @@ int Application::Run(int argc, char *argv[]) {
   doorway_placeholder_material.uv_scale = glm::vec2(1.0f, 1.0f);
   doorway_placeholder_material.uv_offset = glm::vec2(0.0f, 0.0f);
 
+  std::vector<Material> exit_sign_materials;
+  exit_sign_materials.reserve(kExitSignCount);
+  for (int progress = 0; progress < kExitSignCount; ++progress) {
+    Material exit_sign_material = poster_materials[0];
+    exit_sign_material.diffuse_texture_unit =
+        exit_sign_texture_units[progress];
+    exit_sign_materials.push_back(exit_sign_material);
+  }
+
   std::vector<PointLight> corridor_lights = CreateCorridorLights();
   // Inicializamos o código para renderização de texto.
   TextRendering_Init();
@@ -418,8 +436,8 @@ int Application::Run(int argc, char *argv[]) {
     SetPointLights(corridor_lights);
 
     DrawCorridorTreadmill(floor_material, tactile_straight_material, tactile_dots_material, ceiling_material, wall_material,
-                          poster_materials, no_smoking_sign_material,
-                          doorway_placeholder_material);
+                           poster_materials, no_smoking_sign_material,
+                           doorway_placeholder_material, exit_sign_materials);
     DrawSalarymanNPC(g_SalarymanNPC, salaryman_material);
     DrawCamouflagedPursuer(g_CamouflagedPursuer,
                            camouflaged_pursuer_material);

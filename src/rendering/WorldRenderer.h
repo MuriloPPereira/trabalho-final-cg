@@ -12,6 +12,7 @@ void DrawCorridorTreadmill(const Material &floor_material,
                            const Material &wall_material,
                            const std::vector<Material> &poster_materials,
                            const Material &no_smoking_sign_material,
-                           const Material &doorway_placeholder_material);
+                           const Material &doorway_placeholder_material,
+                           const std::vector<Material> &exit_sign_materials);
 
 #endif

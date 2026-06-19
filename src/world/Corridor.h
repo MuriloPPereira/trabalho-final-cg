@@ -22,6 +22,8 @@ struct CorridorState {
   int id;
   bool has_anomaly;
   CorridorAnomalyType anomaly_type;
+  bool is_tutorial;
+  int entrance_progress;
 };
 struct CorridorRenderTransform { glm::mat4 geometryFromLocal; };
 struct CorridorContentFrame {
