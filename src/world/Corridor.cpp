@@ -25,6 +25,7 @@ int g_LastPlayerSection = -1;
 CorridorInstance g_CurrentCorridorInstance;
 CorridorInstance g_NegativeCandidateCorridorInstance;
 CorridorInstance g_PositiveCandidateCorridorInstance;
+CorridorAnomalyType g_ForceNextAnomalyType = kCorridorAnomalyCount;
 
 int PositiveModulo(int value, int divisor) {
   int result = value % divisor;
@@ -219,6 +220,13 @@ void RefreshCandidateCorridorStates() {
   bool next_has_anomaly = (rand() % 2 == 0);
   CorridorAnomalyType next_anomaly_type =
       next_has_anomaly ? ChooseRandomAnomalyType() : kCorridorAnomalyNone;
+
+  if (g_ForceNextAnomalyType != kCorridorAnomalyCount) {
+    next_anomaly_type = g_ForceNextAnomalyType;
+    next_has_anomaly = (next_anomaly_type != kCorridorAnomalyNone);
+    g_ForceNextAnomalyType = kCorridorAnomalyCount;
+  }
+
   const CorridorState next_state =
       MakeCorridorState(g_NextCorridorSequenceId, next_anomaly_type);
 

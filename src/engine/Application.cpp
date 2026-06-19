@@ -455,6 +455,16 @@ int Application::Run(int argc, char *argv[]) {
     // por segundo (frames per second).
     TextRendering_ShowFramesPerSecond(window);
 
+    if (g_ShowInfoText) {
+      TextRendering_PrintString(window, "Shortcuts:", -0.98f, -0.60f, 1.0f);
+      TextRendering_PrintString(window, "1: Normal", -0.98f, -0.65f, 1.0f);
+      TextRendering_PrintString(window, "2: Identical Posters", -0.98f, -0.70f, 1.0f);
+      TextRendering_PrintString(window, "3: No Smoking Signs", -0.98f, -0.75f, 1.0f);
+      TextRendering_PrintString(window, "4: Camouflaged Pursuer", -0.98f, -0.80f, 1.0f);
+      TextRendering_PrintString(window, "5: Giant NPC", -0.98f, -0.85f, 1.0f);
+      TextRendering_PrintString(window, "6: Modified Floor", -0.98f, -0.90f, 1.0f);
+    }
+
     if (pursuer_fail_message_time > 0.0f) {
       TextRendering_PrintString(window, "CAUGHT - EXIT 8 PROGRESS RESET",
                                 -0.68f, 0.0f, 1.2f);

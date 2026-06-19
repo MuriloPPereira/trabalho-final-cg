@@ -378,6 +378,38 @@ void KeyCallback(GLFWwindow *window, int key, int scancode, int action,
     fprintf(stdout, "Shaders recarregados!\n");
     fflush(stdout);
   }
+
+  // Keyboard shortcuts for testing anomalies
+  if (key == GLFW_KEY_1 && action == GLFW_PRESS) {
+    g_ForceNextAnomalyType = kCorridorAnomalyNone;
+    printf("Next corridor forced to: Normal (None)\n");
+    fflush(stdout);
+  }
+  if (key == GLFW_KEY_2 && action == GLFW_PRESS) {
+    g_ForceNextAnomalyType = kCorridorAnomalyIdenticalPosters;
+    printf("Next corridor forced to: Identical Posters\n");
+    fflush(stdout);
+  }
+  if (key == GLFW_KEY_3 && action == GLFW_PRESS) {
+    g_ForceNextAnomalyType = kCorridorAnomalyNoSmokingSigns;
+    printf("Next corridor forced to: No Smoking Signs\n");
+    fflush(stdout);
+  }
+  if (key == GLFW_KEY_4 && action == GLFW_PRESS) {
+    g_ForceNextAnomalyType = kCorridorAnomalyCamouflagedPursuer;
+    printf("Next corridor forced to: Camouflaged Pursuer\n");
+    fflush(stdout);
+  }
+  if (key == GLFW_KEY_5 && action == GLFW_PRESS) {
+    g_ForceNextAnomalyType = kCorridorAnomalyGiantNPC;
+    printf("Next corridor forced to: Giant NPC\n");
+    fflush(stdout);
+  }
+  if (key == GLFW_KEY_6 && action == GLFW_PRESS) {
+    g_ForceNextAnomalyType = kCorridorAnomalyModifiedFloor;
+    printf("Next corridor forced to: Modified Floor\n");
+    fflush(stdout);
+  }
 }
 
 // Definimos o callback para impressão de erros da GLFW no terminal

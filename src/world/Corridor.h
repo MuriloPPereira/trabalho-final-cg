@@ -91,6 +91,7 @@ extern int g_LastPlayerSection;
 extern CorridorInstance g_CurrentCorridorInstance;
 extern CorridorInstance g_NegativeCandidateCorridorInstance;
 extern CorridorInstance g_PositiveCandidateCorridorInstance;
+extern CorridorAnomalyType g_ForceNextAnomalyType;
 
 int PositiveModulo(int value, int divisor);
 const char *CorridorAnomalyTypeName(CorridorAnomalyType anomaly_type);
