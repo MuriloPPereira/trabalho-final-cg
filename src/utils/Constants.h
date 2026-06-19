@@ -42,7 +42,7 @@ inline constexpr float kCamouflagedPursuerIdleWallEmbedDepth = 0.20f;
 inline constexpr float kCamouflagedPursuerTriggerRadius = 8.0f;
 inline constexpr float kCamouflagedPursuerStopDistance = 0.75f;
 inline const char *const kCamouflagedPursuerFbxPath =
-    "assets/perseguidor.fbx";
+    "assets/perseguidor_run.fbx";
 
 inline const char *const kPosterNames[kPosterCount] = {"poster_0", "poster_1", "poster_2", "poster_3"};
 

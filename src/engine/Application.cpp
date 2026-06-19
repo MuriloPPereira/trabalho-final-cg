@@ -22,6 +22,38 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <vector>
 
+namespace {
+const float kPursuerFailMessageDuration = 3.0f;
+
+void ResetGameAfterPursuerCatch() {
+  const glm::vec4 initial_camera_position(0.0f, 1.6f, -1.0f, 1.0f);
+
+  g_SalarymanNPC.active = false;
+  ResetCamouflagedPursuer(g_CamouflagedPursuer);
+  InitializeCorridorLifecycle();
+
+  g_CameraPosition = initial_camera_position;
+  g_CameraYaw = 0.0f;
+  g_CameraPitch = 0.0f;
+  g_FirstMouseInput = true;
+  InitializePlayerCharacterFromCamera(g_CameraPosition, g_CameraYaw);
+  g_PlayerCharacter.moving = false;
+  g_PlayerCharacter.locomotionScale = 1.0f;
+  UpdatePlayerCharacterAnimation(g_PlayerCharacter, 0.0f);
+  if (g_UseThirdPersonCamera)
+    UpdateThirdPersonCameraFromPlayer();
+
+  const glm::vec3 player_position = g_PlayerCharacter.position;
+  TrySpawnSalarymanForCorridorContent(g_CurrentCorridorInstance.content,
+                                      player_position, "pursuer_respawn");
+  ActivateCamouflagedPursuerForCorridor(
+      g_CamouflagedPursuer, g_CurrentCorridorInstance.content);
+
+  printf("\n*** CAUGHT BY CAMOUFLAGED PURSUER - EXIT 8 PROGRESS RESET ***\n\n");
+  fflush(stdout);
+}
+} // namespace
+
 int Application::Run(int argc, char *argv[]) {
   (void)argc;
   (void)argv;
@@ -141,7 +173,7 @@ int Application::Run(int argc, char *argv[]) {
     g_CamouflagedPursuerAnimator.model =
         &g_CamouflagedPursuerAnimatedModel;
     g_CamouflagedPursuerAnimator.currentTime = 0.0f;
-    UpdateSalarymanAnimation(g_CamouflagedPursuerAnimator, 0.0f);
+    SetAnimatedModelToBindPose(g_CamouflagedPursuerAnimatedModel);
     g_CamouflagedPursuer.animatedModel =
         &g_CamouflagedPursuerAnimatedModel;
     g_CamouflagedPursuer.animator = &g_CamouflagedPursuerAnimator;
@@ -284,10 +316,16 @@ int Application::Run(int argc, char *argv[]) {
   // Ficamos em um loop infinito, renderizando, até que o usuário feche a
   // janela
   float last_frame_time = (float)glfwGetTime();
+  float pursuer_fail_message_time = 0.0f;
   while (!glfwWindowShouldClose(window)) {
     float current_frame_time = (float)glfwGetTime();
     float delta_time = current_frame_time - last_frame_time;
     last_frame_time = current_frame_time;
+    if (pursuer_fail_message_time > 0.0f) {
+      pursuer_fail_message_time -= delta_time;
+      if (pursuer_fail_message_time < 0.0f)
+        pursuer_fail_message_time = 0.0f;
+    }
     UpdateCameraFromInput(window, delta_time);
 
     // Aqui executamos as operações de renderização
@@ -322,6 +360,16 @@ int Application::Run(int argc, char *argv[]) {
                         camera_position_c.z);
     UpdateCamouflagedPursuer(g_CamouflagedPursuer, delta_time,
                              pursuer_target);
+
+    if (HasCamouflagedPursuerCaughtPlayer(g_CamouflagedPursuer,
+                                          pursuer_target)) {
+      ResetGameAfterPursuerCatch();
+      pursuer_fail_message_time = kPursuerFailMessageDuration;
+      camera_position_c = g_CameraPosition;
+      camera_front_vector = ComputeCameraViewVector();
+      camera_lookat_l = camera_position_c + camera_front_vector;
+      camera_view_vector = camera_lookat_l - camera_position_c;
+    }
 
     // Computamos a matriz "View" utilizando os parâmetros da câmera para
     // definir o sistema de coordenadas da câmera.  Veja slides 2-14, 184-190
@@ -388,6 +436,11 @@ int Application::Run(int argc, char *argv[]) {
     // Imprimimos na tela informação sobre o número de quadros renderizados
     // por segundo (frames per second).
     TextRendering_ShowFramesPerSecond(window);
+
+    if (pursuer_fail_message_time > 0.0f) {
+      TextRendering_PrintString(window, "CAUGHT - EXIT 8 PROGRESS RESET",
+                                -0.68f, 0.0f, 1.2f);
+    }
 
     // O framebuffer onde OpenGL executa as operações de renderização não
     // é o mesmo que está sendo mostrado para o usuário, caso contrário

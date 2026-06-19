@@ -226,8 +226,16 @@ void RefreshCandidateCorridorStates() {
       next_state, glm::vec3(0.0f, 0.0f, -1.0f));
 }
 void InitializeCorridorLifecycle() {
+  g_CurrentExitLevel = 0;
   g_CurrentCorridorSequenceId = 0;
   g_NextCorridorSequenceId = 1;
+  g_LastEnteredPhysicalSide = 0;
+  g_LastSalarymanSpawnCorridorId = -1;
+  g_PreparedNextCorridorId = -1;
+  g_PreparedTransitionDirection = 0;
+  g_InConnectorTransition = false;
+  g_ConnectorMidpointCrossed = false;
+  g_LastPlayerSection = -1;
   g_CurrentCorridorInstance = CreateCorridorInstanceFromState(
       MakeCorridorState(g_CurrentCorridorSequenceId),
       glm::vec3(0.0f, 0.0f, -1.0f));

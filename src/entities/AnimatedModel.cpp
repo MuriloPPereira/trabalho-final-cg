@@ -703,18 +703,21 @@ void StripSalarymanHorizontalRootMotion(SalarymanAnimationChannel &channel) {
 }
 
 void CalculateSalarymanBoneTransforms(SalarymanAnimatedModel &model,
-                                      int node_index,
-                                      const glm::mat4 &parent_transform,
-                                      float animation_time) {
+                                       int node_index,
+                                       const glm::mat4 &parent_transform,
+                                       float animation_time,
+                                       bool apply_animation) {
   if (node_index < 0 || (size_t)node_index >= model.nodes.size())
     return;
 
   const SalarymanAnimatedNode &node = model.nodes[(size_t)node_index];
   glm::mat4 node_transform = node.transform;
-  const SalarymanAnimationChannel *channel =
-      FindAnimationChannel(model.animation, node.name);
-  if (channel != NULL)
-    node_transform = InterpolateNodeTransform(*channel, animation_time);
+  if (apply_animation) {
+    const SalarymanAnimationChannel *channel =
+        FindAnimationChannel(model.animation, node.name);
+    if (channel != NULL)
+      node_transform = InterpolateNodeTransform(*channel, animation_time);
+  }
 
   const glm::mat4 global_transform = parent_transform * node_transform;
   std::map<std::string, BoneInfo>::const_iterator bone_it =
@@ -730,11 +733,12 @@ void CalculateSalarymanBoneTransforms(SalarymanAnimatedModel &model,
 
   for (size_t i = 0; i < node.children.size(); ++i)
     CalculateSalarymanBoneTransforms(model, node.children[i], global_transform,
-                                     animation_time);
+                                     animation_time, apply_animation);
 }
 
 void CalculateSalarymanBoneTransformsAtTime(SalarymanAnimatedModel &model,
-                                            float animation_time) {
+                                             float animation_time,
+                                             bool apply_animation = true) {
   if (model.rootNodeIndex < 0)
     return;
 
@@ -742,7 +746,8 @@ void CalculateSalarymanBoneTransformsAtTime(SalarymanAnimatedModel &model,
     model.finalBoneMatrices[i] = Matrix_Identity();
 
   CalculateSalarymanBoneTransforms(model, model.rootNodeIndex,
-                                   Matrix_Identity(), animation_time);
+                                   Matrix_Identity(), animation_time,
+                                   apply_animation);
 }
 } // namespace
 
@@ -1249,6 +1254,10 @@ bool LoadSalarymanAnimatedModel(SalarymanAnimatedModel &model,
   return LoadTexturedAnimatedModel(
       model, filename, "assets/salaryman/Ch33_1001_Diffuse.png",
       "assets/salaryman/Ch33_1002_Diffuse.png", "salaryman");
+}
+
+void SetAnimatedModelToBindPose(SalarymanAnimatedModel &model) {
+  CalculateSalarymanBoneTransformsAtTime(model, 0.0f, false);
 }
 
 void UpdateSalarymanAnimation(SalarymanAnimator &animator, float delta_time) {

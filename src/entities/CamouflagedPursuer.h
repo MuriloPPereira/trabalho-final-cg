@@ -34,6 +34,9 @@ void ActivateCamouflagedPursuerForCorridor(
 void UpdateCamouflagedPursuer(CamouflagedPursuerState &pursuer,
                               float delta_time,
                               const glm::vec3 &player_position);
+bool HasCamouflagedPursuerCaughtPlayer(
+    const CamouflagedPursuerState &pursuer,
+    const glm::vec3 &player_position);
 void DrawCamouflagedPursuer(const CamouflagedPursuerState &pursuer,
                             const Material &material);
 

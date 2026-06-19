@@ -66,6 +66,7 @@ bool LoadTexturedAnimatedModel(SalarymanAnimatedModel &model,
                                const char *hair_diffuse_filename,
                                const char *debug_label);
 bool LoadSalarymanAnimatedModel(SalarymanAnimatedModel &model, const char *filename);
+void SetAnimatedModelToBindPose(SalarymanAnimatedModel &model);
 void UpdateSalarymanAnimation(SalarymanAnimator &animator, float delta_time);
 void DrawAnimatedModel(const SalarymanAnimatedModel &model);
 void DrawStaticModel(const StaticModel &model);

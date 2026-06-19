@@ -29,10 +29,10 @@ void ResetCamouflagedPursuer(CamouflagedPursuerState &pursuer) {
   pursuer.movementSpeed = 0.0f;
   pursuer.position = glm::vec3(0.0f);
   pursuer.forward = glm::vec3(0.0f, 0.0f, -1.0f);
-  if (pursuer.animator != NULL) {
+  if (pursuer.animator != NULL)
     pursuer.animator->currentTime = 0.0f;
-    UpdateSalarymanAnimation(*pursuer.animator, 0.0f);
-  }
+  if (pursuer.animatedModel != NULL && pursuer.animatedModel->loaded)
+    SetAnimatedModelToBindPose(*pursuer.animatedModel);
 }
 
 void ActivateCamouflagedPursuerForCorridor(
@@ -63,6 +63,8 @@ void UpdateCamouflagedPursuer(CamouflagedPursuerState &pursuer,
     if (distance_to_player > pursuer.triggerRadius)
       return;
     pursuer.chasing = true;
+    if (pursuer.animator != NULL)
+      pursuer.animator->currentTime = 0.0f;
   }
 
   if (distance_to_player <= kCamouflagedPursuerStopDistance)
@@ -77,6 +79,18 @@ void UpdateCamouflagedPursuer(CamouflagedPursuerState &pursuer,
   pursuer.position += pursuer.forward * movement_distance;
   if (pursuer.useAnimation && pursuer.animator != NULL)
     UpdateSalarymanAnimation(*pursuer.animator, delta_time);
+}
+
+bool HasCamouflagedPursuerCaughtPlayer(
+    const CamouflagedPursuerState &pursuer,
+    const glm::vec3 &player_position) {
+  if (!pursuer.active || !pursuer.visible || !pursuer.chasing)
+    return false;
+
+  glm::vec3 to_player = player_position - pursuer.position;
+  to_player.y = 0.0f;
+  return glm::length(to_player) <=
+         kCamouflagedPursuerStopDistance + 0.001f;
 }
 
 void DrawCamouflagedPursuer(const CamouflagedPursuerState &pursuer,
