@@ -52,6 +52,8 @@ const char *CorridorAnomalyTypeName(CorridorAnomalyType anomaly_type) {
     return "giant_npc";
   case kCorridorAnomalyModifiedFloor:
     return "modified_floor";
+  case kCorridorAnomalyTwoDoors:
+    return "two_doors";
   default:
     return "unknown";
   }
@@ -398,7 +400,10 @@ CorridorContent GenerateCorridorContent(int corridor_id,
   content.corridorId = corridor_id;
   content.frame = MakeCorridorContentFrame(corridor_id, content_forward);
   content.posters.reserve(kPosterCount);
-  content.doorways.reserve(kDoorwayCount);
+  const int doorway_count =
+      (anomaly_type == kCorridorAnomalyTwoDoors) ? kDoorwayCount - 1
+                                                 : kDoorwayCount;
+  content.doorways.reserve(doorway_count);
   content.lightPositions.reserve(7);
   content.hasAnomaly = (anomaly_type != kCorridorAnomalyNone);
   content.anomalyType = anomaly_type;
@@ -436,7 +441,7 @@ CorridorContent GenerateCorridorContent(int corridor_id,
   else
     AddNormalNoSmokingSign(content.noSmokingSigns, frame);
 
-  for (int slot = 0; slot < kDoorwayCount; ++slot) {
+  for (int slot = 0; slot < doorway_count; ++slot) {
     const float doorway_distance =
         frame.corridorLength * kDoorwayDistanceFractions[slot];
 
@@ -1070,6 +1075,7 @@ void BuildCorridorAndAddToVirtualScene() {
   const float left_reveal_x = left_wall_x - kDoorwayRecessDepth;
 
   struct DoorwayOpening {
+    int slot;
     float z_low;
     float z_high;
   };
@@ -1080,7 +1086,7 @@ void BuildCorridorAndAddToVirtualScene() {
     const float center_z =
         z0 - corridor_length * kDoorwayDistanceFractions[slot];
     doorway_openings.push_back(
-        DoorwayOpening{center_z - 0.5f * kDoorwayOpeningWidth,
+        DoorwayOpening{slot, center_z - 0.5f * kDoorwayOpeningWidth,
                        center_z + 0.5f * kDoorwayOpeningWidth});
   }
   std::sort(doorway_openings.begin(), doorway_openings.end(),
@@ -1132,10 +1138,17 @@ void BuildCorridorAndAddToVirtualScene() {
       span_start = doorway_openings[span].z_high;
   }
 
-  for (int slot = 0; slot < kDoorwayCount; ++slot) {
-    const DoorwayOpening &opening = doorway_openings[slot];
+  for (const DoorwayOpening &opening : doorway_openings) {
+    const int slot = opening.slot;
     const float z_low = opening.z_low;
     const float z_high = opening.z_high;
+
+    add_right_wall_piece("corridor_wall_right_doorway_fill_" +
+                             std::to_string(slot),
+                         z_low, z_high, doorway_y_low, corridor_height);
+    add_left_wall_piece("corridor_wall_left_doorway_fill_" +
+                            std::to_string(slot),
+                        z_low, z_high, doorway_y_low, corridor_height);
 
     add_right_wall_piece("corridor_wall_right_doorway_top_" +
                              std::to_string(slot),

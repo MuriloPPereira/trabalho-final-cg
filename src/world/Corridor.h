@@ -15,6 +15,7 @@ enum CorridorAnomalyType {
   kCorridorAnomalyCamouflagedPursuer,
   kCorridorAnomalyGiantNPC,
   kCorridorAnomalyModifiedFloor,
+  kCorridorAnomalyTwoDoors,
   kCorridorAnomalyCount
 };
 

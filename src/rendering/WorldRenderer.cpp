@@ -126,13 +126,19 @@ void DrawCorridorTreadmill(const Material &floor_material,
 
           bool draw_doorways = draw_posters;
           bool doorways_on_positive_x_wall = true;
+          bool active_doorway_slots[kDoorwayCount] = {};
           if (draw_doorways) {
             const glm::vec3 content_right =
                 corridor_instance.content.frame.contentRight;
             doorways_on_positive_x_wall = (content_right.x >= 0.0f);
+            for (const DoorInstance &doorway :
+                 corridor_instance.content.doorways) {
+              if (doorway.slot >= 0 && doorway.slot < kDoorwayCount)
+                active_doorway_slots[doorway.slot] = true;
+            }
           }
 
-          auto draw_left_wall_with_doorways = []() {
+          auto draw_left_wall_with_doorways = [&]() {
             for (int span = 0; span <= kDoorwayCount; ++span) {
               const std::string name = "corridor_wall_left_doorway_span_" +
                                        std::to_string(span);
@@ -140,6 +146,11 @@ void DrawCorridorTreadmill(const Material &floor_material,
             }
             for (int slot = 0; slot < kDoorwayCount; ++slot) {
               const std::string suffix = "_" + std::to_string(slot);
+              if (!active_doorway_slots[slot]) {
+                DrawVirtualObject(
+                    ("corridor_wall_left_doorway_fill" + suffix).c_str());
+                continue;
+              }
               DrawVirtualObject(
                   ("corridor_wall_left_doorway_top" + suffix).c_str());
               DrawVirtualObject(
@@ -151,7 +162,7 @@ void DrawCorridorTreadmill(const Material &floor_material,
             }
           };
 
-          auto draw_right_wall_with_doorways = []() {
+          auto draw_right_wall_with_doorways = [&]() {
             for (int span = 0; span <= kDoorwayCount; ++span) {
               const std::string name = "corridor_wall_right_doorway_span_" +
                                        std::to_string(span);
@@ -159,6 +170,11 @@ void DrawCorridorTreadmill(const Material &floor_material,
             }
             for (int slot = 0; slot < kDoorwayCount; ++slot) {
               const std::string suffix = "_" + std::to_string(slot);
+              if (!active_doorway_slots[slot]) {
+                DrawVirtualObject(
+                    ("corridor_wall_right_doorway_fill" + suffix).c_str());
+                continue;
+              }
               DrawVirtualObject(
                   ("corridor_wall_right_doorway_top" + suffix).c_str());
               DrawVirtualObject(

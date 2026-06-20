@@ -466,6 +466,7 @@ int Application::Run(int argc, char *argv[]) {
       TextRendering_PrintString(window, "4: Camouflaged Pursuer", -0.98f, -0.80f, 1.0f);
       TextRendering_PrintString(window, "5: Giant NPC", -0.98f, -0.85f, 1.0f);
       TextRendering_PrintString(window, "6: Modified Floor", -0.98f, -0.90f, 1.0f);
+      TextRendering_PrintString(window, "7: Two Doors", -0.98f, -0.95f, 1.0f);
     }
 
     if (pursuer_fail_message_time > 0.0f) {
