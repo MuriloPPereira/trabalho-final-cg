@@ -376,7 +376,8 @@ void ActivateCamouflagedPursuerForCorridor(
   pursuer.visible = true;
   pursuer.corridorId = content.corridorId;
   pursuer.triggerRadius = kCamouflagedPursuerTriggerRadius;
-  pursuer.movementSpeed = GetPlayerThirdPersonShiftSprintSpeed();
+  pursuer.movementSpeed = GetPlayerThirdPersonShiftSprintSpeed() *
+                          kCamouflagedPursuerSprintSpeedRatio;
   pursuer.position = content.camouflagedPursuerSpawnPosition;
   pursuer.forward = -content.frame.contentForward;
 }
@@ -401,7 +402,8 @@ void UpdateCamouflagedPursuer(CamouflagedPursuerState &pursuer,
   if (distance_to_player <= kCamouflagedPursuerStopDistance)
     return;
 
-  pursuer.movementSpeed = GetPlayerThirdPersonShiftSprintSpeed();
+  pursuer.movementSpeed = GetPlayerThirdPersonShiftSprintSpeed() *
+                          kCamouflagedPursuerSprintSpeedRatio;
   const float chase_delta_time =
       std::max(0.0f, std::min(delta_time, kMaxPursuerChaseDeltaTime));
   float movement_budget = pursuer.movementSpeed * chase_delta_time;

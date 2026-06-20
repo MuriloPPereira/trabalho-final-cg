@@ -14,7 +14,7 @@ SalarymanAnimator g_PlayerAnimator;
 PlayerCharacter g_PlayerCharacter;
 
 namespace {
-constexpr float kPlayerWorldSpeedMultiplier = 2.75f;
+constexpr float kPlayerWorldSpeedMultiplier = 5.50f;
 constexpr float kPlayerAnimationPlaybackScale = 1.25f;
 constexpr float kPlayerRequestedSpeedScale = 1.5f;
 }
@@ -22,7 +22,7 @@ constexpr float kPlayerRequestedSpeedScale = 1.5f;
 PlayerCharacter::PlayerCharacter()
     : loaded(false), moving(false), useAnimation(false),
       position(0.0f, 0.0f, -1.0f), forward(0.0f, 0.0f, -1.0f), yaw(0.0f),
-      speed(1.5f), baseWalkSpeed(0.67f), animationPlaybackScale(1.0f),
+      speed(3.0f), baseWalkSpeed(0.67f), animationPlaybackScale(1.0f),
       locomotionScale(1.0f), model(NULL), animatedModel(NULL), animator(NULL) {}
 
 bool LoadPlayerCharacterModel() {

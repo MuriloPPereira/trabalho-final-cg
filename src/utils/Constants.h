@@ -13,6 +13,7 @@ inline constexpr int kScaryPosterTextureIndex = kPosterCount;
 inline constexpr int kMaxLights = 30;
 inline constexpr int kMaxSalarymanBones = 100;
 inline constexpr float kThirdPersonShiftSprintMultiplier = 2.0f;
+inline constexpr float kCamouflagedPursuerSprintSpeedRatio = 0.70f;
 
 inline constexpr float kCorridorHalfWidth = 2.0f;
 inline constexpr float kCorridorHeight = 3.0f;

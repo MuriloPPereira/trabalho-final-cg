@@ -156,22 +156,35 @@ void UpdateCameraFromInput(GLFWwindow *window, float delta_time) {
     return;
   }
 
-  float movement_speed = 10.0f * sprint_multiplier;
-  float step = movement_speed * delta_time;
+  const float movement_speed =
+      sprint_active ? GetPlayerThirdPersonShiftSprintSpeed()
+                    : g_PlayerCharacter.speed;
 
-  glm::vec4 front = ComputeCameraFrontVector();
-  glm::vec4 world_up = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
-  glm::vec4 right = crossproduct(front, world_up);
-  right = right / norm(right);
+  glm::vec4 camera_front_4 = ComputeCameraFrontVector();
+  glm::vec3 camera_front(camera_front_4.x, 0.0f, camera_front_4.z);
+  if (glm::length(camera_front) < 0.0001f)
+    camera_front = glm::vec3(0.0f, 0.0f, -1.0f);
+  else
+    camera_front = glm::normalize(camera_front);
 
+  const glm::vec3 camera_right = glm::normalize(
+      glm::cross(camera_front, glm::vec3(0.0f, 1.0f, 0.0f)));
+  glm::vec3 movement(0.0f);
   if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-    g_CameraPosition += front * step;
+    movement += camera_front;
   if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-    g_CameraPosition -= front * step;
+    movement -= camera_front;
   if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-    g_CameraPosition -= right * step;
+    movement -= camera_right;
   if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-    g_CameraPosition += right * step;
+    movement += camera_right;
+
+  if (glm::length(movement) > 0.0001f) {
+    movement = glm::normalize(movement);
+    const glm::vec3 displacement = movement * movement_speed * delta_time;
+    g_CameraPosition +=
+        glm::vec4(displacement.x, displacement.y, displacement.z, 0.0f);
+  }
 
   g_CameraPosition.y = 1.6f;
 
