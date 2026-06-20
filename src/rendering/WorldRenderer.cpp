@@ -138,14 +138,15 @@ void DrawCorridorTreadmill(const Material &floor_material,
             }
           }
 
-          auto draw_left_wall_with_doorways = [&]() {
+          auto draw_left_wall_with_doorways = [&](bool backward) {
+            std::string prefix = backward ? "_backward" : "";
             for (int span = 0; span <= kDoorwayCount; ++span) {
-              const std::string name = "corridor_wall_left_doorway_span_" +
+              const std::string name = "corridor_wall_left_doorway" + prefix + "_span_" +
                                        std::to_string(span);
               DrawVirtualObject(name.c_str());
             }
             for (int slot = 0; slot < kDoorwayCount; ++slot) {
-              const std::string suffix = "_" + std::to_string(slot);
+              const std::string suffix = prefix + "_" + std::to_string(slot);
               if (!active_doorway_slots[slot]) {
                 DrawVirtualObject(
                     ("corridor_wall_left_doorway_fill" + suffix).c_str());
@@ -162,14 +163,15 @@ void DrawCorridorTreadmill(const Material &floor_material,
             }
           };
 
-          auto draw_right_wall_with_doorways = [&]() {
+          auto draw_right_wall_with_doorways = [&](bool backward) {
+            std::string prefix = backward ? "_backward" : "";
             for (int span = 0; span <= kDoorwayCount; ++span) {
-              const std::string name = "corridor_wall_right_doorway_span_" +
+              const std::string name = "corridor_wall_right_doorway" + prefix + "_span_" +
                                        std::to_string(span);
               DrawVirtualObject(name.c_str());
             }
             for (int slot = 0; slot < kDoorwayCount; ++slot) {
-              const std::string suffix = "_" + std::to_string(slot);
+              const std::string suffix = prefix + "_" + std::to_string(slot);
               if (!active_doorway_slots[slot]) {
                 DrawVirtualObject(
                     ("corridor_wall_right_doorway_fill" + suffix).c_str());
@@ -186,13 +188,15 @@ void DrawCorridorTreadmill(const Material &floor_material,
             }
           };
 
+          bool walking_backwards = (corridor_instance.content.frame.contentForward.z > 0.0f);
+
           if (draw_doorways && !doorways_on_positive_x_wall)
-            draw_left_wall_with_doorways();
+            draw_left_wall_with_doorways(walking_backwards);
           else
             DrawVirtualObject("corridor_wall_left");
 
           if (draw_doorways && doorways_on_positive_x_wall)
-            draw_right_wall_with_doorways();
+            draw_right_wall_with_doorways(walking_backwards);
           else
             DrawVirtualObject("corridor_wall_right");
 
@@ -248,7 +252,7 @@ void DrawCorridorTreadmill(const Material &floor_material,
                   content_placement * doorway_basis;
               glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE,
                                  glm::value_ptr(doorway_model));
-              DrawVirtualObject("doorway_placeholder_panel");
+              DrawVirtualObject("metal_door_2");
             }
           }
 

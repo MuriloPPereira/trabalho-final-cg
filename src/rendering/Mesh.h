@@ -33,4 +33,6 @@ void ComputeNormals(ObjModel *model);
 void BuildTrianglesAndAddToVirtualScene(ObjModel *model);
 void PrintObjModelInfo(ObjModel *model);
 
+bool LoadModelWithAssimpToVirtualScene(const char* filename, const char* object_name);
+
 #endif

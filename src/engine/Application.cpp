@@ -13,6 +13,7 @@
 #include "rendering/WorldRenderer.h"
 #include "utils/Constants.h"
 #include "world/Corridor.h"
+#include "rendering/Mesh.h"
 
 #include <algorithm>
 #include <cmath>
@@ -285,6 +286,8 @@ int Application::Run(int argc, char *argv[]) {
   BuildPostersAndAddToVirtualScene();
   BuildNoSmokingSignAndAddToVirtualScene();
   BuildDoorwayPlaceholderAndAddToVirtualScene();
+  if (!LoadModelWithAssimpToVirtualScene("assets/metal_door_2.glb", "metal_door_2"))
+    std::exit(EXIT_FAILURE);
   if (!LoadSalarymanStaticModel(g_SalarymanStaticModel,
                                 "assets/salarymanwalking.fbx"))
     std::exit(EXIT_FAILURE);
@@ -420,10 +423,10 @@ int Application::Run(int argc, char *argv[]) {
 
   Material doorway_placeholder_material;
   doorway_placeholder_material.diffuse_texture_unit =
-      kDoorwayPlaceholderTextureUnit;
-  doorway_placeholder_material.specular_strength = 0.0f;
-  doorway_placeholder_material.shininess = 1.0f;
-  doorway_placeholder_material.ambient_strength = 0.0f;
+      kSalarymanTextureUnit; // Use a greyish texture
+  doorway_placeholder_material.specular_strength = 0.45f;
+  doorway_placeholder_material.shininess = 32.0f;
+  doorway_placeholder_material.ambient_strength = 0.15f;
   doorway_placeholder_material.uv_scale = glm::vec2(1.0f, 1.0f);
   doorway_placeholder_material.uv_offset = glm::vec2(0.0f, 0.0f);
 

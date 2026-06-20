@@ -9,6 +9,11 @@
 #include <limits>
 #include <set>
 #include <stdexcept>
+#include <iostream>
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+#include "utils/FileUtils.h"
 
 std::map<std::string, SceneObject> g_VirtualScene;
 
@@ -322,6 +327,177 @@ void BuildTrianglesAndAddToVirtualScene(ObjModel *model) {
   // "Desligamos" o VAO, evitando assim que operações posteriores venham a
   // alterar o mesmo. Isso evita bugs.
   glBindVertexArray(0);
+}
+
+void ProcessAssimpNode(aiNode *node, const aiScene *scene, const glm::mat4 &parentTransform,
+                       std::vector<GLuint> &indices, std::vector<float> &model_coefficients,
+                       std::vector<float> &normal_coefficients, std::vector<float> &texture_coefficients,
+                       glm::vec3 &bbox_min, glm::vec3 &bbox_max) {
+    
+    // Extract local transform
+    glm::mat4 localTransform(
+        node->mTransformation.a1, node->mTransformation.b1, node->mTransformation.c1, node->mTransformation.d1,
+        node->mTransformation.a2, node->mTransformation.b2, node->mTransformation.c2, node->mTransformation.d2,
+        node->mTransformation.a3, node->mTransformation.b3, node->mTransformation.c3, node->mTransformation.d3,
+        node->mTransformation.a4, node->mTransformation.b4, node->mTransformation.c4, node->mTransformation.d4
+    );
+    // Assimp matrices are row-major, GLM is column-major. We must transpose it.
+    localTransform = glm::transpose(localTransform);
+    
+    glm::mat4 globalTransform = parentTransform * localTransform;
+    glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(globalTransform)));
+
+    for (unsigned int m = 0; m < node->mNumMeshes; m++) {
+        aiMesh *mesh = scene->mMeshes[node->mMeshes[m]];
+        unsigned int first_index = model_coefficients.size() / 4;
+
+        for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
+            glm::vec4 localPos(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z, 1.0f);
+            glm::vec4 globalPos = globalTransform * localPos;
+            
+            model_coefficients.push_back(globalPos.x);
+            model_coefficients.push_back(globalPos.y);
+            model_coefficients.push_back(globalPos.z);
+            model_coefficients.push_back(1.0f);
+
+            bbox_min.x = std::min(bbox_min.x, globalPos.x);
+            bbox_min.y = std::min(bbox_min.y, globalPos.y);
+            bbox_min.z = std::min(bbox_min.z, globalPos.z);
+            bbox_max.x = std::max(bbox_max.x, globalPos.x);
+            bbox_max.y = std::max(bbox_max.y, globalPos.y);
+            bbox_max.z = std::max(bbox_max.z, globalPos.z);
+
+            if (mesh->HasNormals()) {
+                glm::vec3 localNormal(mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z);
+                glm::vec3 globalNormal = glm::normalize(normalMatrix * localNormal);
+                normal_coefficients.push_back(globalNormal.x);
+                normal_coefficients.push_back(globalNormal.y);
+                normal_coefficients.push_back(globalNormal.z);
+                normal_coefficients.push_back(0.0f);
+            } else {
+                normal_coefficients.push_back(0.0f);
+                normal_coefficients.push_back(1.0f);
+                normal_coefficients.push_back(0.0f);
+                normal_coefficients.push_back(0.0f);
+            }
+
+            if (mesh->HasTextureCoords(0)) {
+                texture_coefficients.push_back(mesh->mTextureCoords[0][i].x);
+                texture_coefficients.push_back(mesh->mTextureCoords[0][i].y);
+            } else {
+                texture_coefficients.push_back(0.0f);
+                texture_coefficients.push_back(0.0f);
+            }
+        }
+
+        for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
+            aiFace face = mesh->mFaces[i];
+            for (unsigned int j = 0; j < face.mNumIndices; j++) {
+                indices.push_back(first_index + face.mIndices[j]);
+            }
+        }
+    }
+
+    for (unsigned int i = 0; i < node->mNumChildren; i++) {
+        ProcessAssimpNode(node->mChildren[i], scene, globalTransform, indices, model_coefficients, normal_coefficients, texture_coefficients, bbox_min, bbox_max);
+    }
+}
+
+bool LoadModelWithAssimpToVirtualScene(const char* filename, const char* object_name) {
+    Assimp::Importer importer;
+    std::string fullpath = ResolveExistingPath(filename);
+    const aiScene *scene = importer.ReadFile(
+        fullpath.c_str(), aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_GenSmoothNormals | aiProcess_JoinIdenticalVertices);
+
+    if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
+        std::cerr << "ERROR::ASSIMP:: " << importer.GetErrorString() << "\n";
+        return false;
+    }
+
+    GLuint vertex_array_object_id;
+    glGenVertexArrays(1, &vertex_array_object_id);
+    glBindVertexArray(vertex_array_object_id);
+
+    std::vector<GLuint> indices;
+    std::vector<float> model_coefficients;
+    std::vector<float> normal_coefficients;
+    std::vector<float> texture_coefficients;
+
+    const float minval = std::numeric_limits<float>::lowest();
+    const float maxval = std::numeric_limits<float>::max();
+    glm::vec3 bbox_min = glm::vec3(maxval, maxval, maxval);
+    glm::vec3 bbox_max = glm::vec3(minval, minval, minval);
+
+    glm::mat4 baseTransform = glm::mat4(1.0f);
+    if (std::string(object_name) == "metal_door_2") {
+        // Normalize the door's huge bounding box:
+        // Center X (~185) and Z (~7.15). Base Y=0.
+        // Scale Y by 1/204 to match height=1.0.
+        // Scale X and Z by 1/121.5 to match width=1.0.
+        // Rotate 90 degrees around Y so width (orig X) maps to local Z,
+        // and depth (orig Z) maps to local X (which points into the corridor).
+        glm::mat4 T = Matrix_Translate(-185.0f, 0.0f, -7.15f);
+        glm::mat4 S = Matrix_Scale(1.0f / 121.5f, 1.0f / 204.0f, 1.0f / 121.5f);
+        glm::mat4 R = Matrix_Rotate_Y(3.1415926535f / 2.0f);
+        
+        // Also the door's normals might face the wrong way, we will see.
+        baseTransform = R * S * T;
+    }
+    
+    ProcessAssimpNode(scene->mRootNode, scene, baseTransform, indices, model_coefficients, normal_coefficients, texture_coefficients, bbox_min, bbox_max);
+
+    if (indices.empty()) {
+        std::cerr << "ERROR: Failed to load any geometry from " << filename << "\n";
+        return false;
+    }
+
+    SceneObject theobject;
+    theobject.name = object_name;
+    theobject.first_index = 0;
+    theobject.num_indices = indices.size();
+    theobject.rendering_mode = GL_TRIANGLES;
+    theobject.vertex_array_object_id = vertex_array_object_id;
+    theobject.bbox_min = bbox_min;
+    theobject.bbox_max = bbox_max;
+
+    std::cout << "DEBUG: " << object_name << " bbox min: " << bbox_min.x << ", " << bbox_min.y << ", " << bbox_min.z << "\n";
+    std::cout << "DEBUG: " << object_name << " bbox max: " << bbox_max.x << ", " << bbox_max.y << ", " << bbox_max.z << "\n";
+
+    g_VirtualScene[object_name] = theobject;
+
+    GLuint VBO_model_coefficients_id;
+    glGenBuffers(1, &VBO_model_coefficients_id);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO_model_coefficients_id);
+    glBufferData(GL_ARRAY_BUFFER, model_coefficients.size() * sizeof(float), NULL, GL_STATIC_DRAW);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, model_coefficients.size() * sizeof(float), model_coefficients.data());
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(0);
+
+    GLuint VBO_normal_coefficients_id;
+    glGenBuffers(1, &VBO_normal_coefficients_id);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO_normal_coefficients_id);
+    glBufferData(GL_ARRAY_BUFFER, normal_coefficients.size() * sizeof(float), NULL, GL_STATIC_DRAW);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, normal_coefficients.size() * sizeof(float), normal_coefficients.data());
+    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(1);
+
+    GLuint VBO_texture_coefficients_id;
+    glGenBuffers(1, &VBO_texture_coefficients_id);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO_texture_coefficients_id);
+    glBufferData(GL_ARRAY_BUFFER, texture_coefficients.size() * sizeof(float), NULL, GL_STATIC_DRAW);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, texture_coefficients.size() * sizeof(float), texture_coefficients.data());
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(2);
+
+    GLuint indices_id;
+    glGenBuffers(1, &indices_id);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indices_id);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(GLuint), NULL, GL_STATIC_DRAW);
+    glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, indices.size() * sizeof(GLuint), indices.data());
+
+    glBindVertexArray(0);
+
+    return true;
 }
 
 // Função para debugging: imprime no terminal todas informações de um modelo

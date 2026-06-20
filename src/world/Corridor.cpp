@@ -1093,11 +1093,14 @@ void BuildCorridorAndAddToVirtualScene() {
     float z_high;
   };
 
-  std::vector<DoorwayOpening> doorway_openings;
+  auto generate_wall_meshes = [&](bool backward) {
+    std::string prefix = backward ? "_backward" : "";
+    std::vector<DoorwayOpening> doorway_openings;
   doorway_openings.reserve(kDoorwayCount);
   for (int slot = 0; slot < kDoorwayCount; ++slot) {
-    const float center_z =
-        z0 - corridor_length * kDoorwayDistanceFractions[slot];
+    float fraction = kDoorwayDistanceFractions[slot];
+      if (backward) fraction = 1.0f - fraction;
+      const float center_z = z0 - corridor_length * fraction;
     doorway_openings.push_back(
         DoorwayOpening{slot, center_z - 0.5f * kDoorwayOpeningWidth,
                        center_z + 0.5f * kDoorwayOpeningWidth});
@@ -1141,10 +1144,10 @@ void BuildCorridorAndAddToVirtualScene() {
   for (int span = 0; span <= kDoorwayCount; ++span) {
     const float span_end =
         (span < kDoorwayCount) ? doorway_openings[span].z_low : z0;
-    add_right_wall_piece("corridor_wall_right_doorway_span_" +
+    add_right_wall_piece("corridor_wall_right_doorway" + prefix + "_span_" +
                              std::to_string(span),
                          span_start, span_end, 0.0f, corridor_height);
-    add_left_wall_piece("corridor_wall_left_doorway_span_" +
+    add_left_wall_piece("corridor_wall_left_doorway" + prefix + "_span_" +
                             std::to_string(span),
                         span_start, span_end, 0.0f, corridor_height);
     if (span < kDoorwayCount)
@@ -1152,26 +1155,22 @@ void BuildCorridorAndAddToVirtualScene() {
   }
 
   for (const DoorwayOpening &opening : doorway_openings) {
-    const int slot = opening.slot;
-    const float z_low = opening.z_low;
-    const float z_high = opening.z_high;
+      const int slot = opening.slot;
+      const float z_low = opening.z_low;
+      const float z_high = opening.z_high;
+      const std::string suffix = prefix + "_" + std::to_string(slot);
 
-    add_right_wall_piece("corridor_wall_right_doorway_fill_" +
-                             std::to_string(slot),
+    add_right_wall_piece("corridor_wall_right_doorway_fill" + suffix,
                          z_low, z_high, doorway_y_low, corridor_height);
-    add_left_wall_piece("corridor_wall_left_doorway_fill_" +
-                            std::to_string(slot),
+    add_left_wall_piece("corridor_wall_left_doorway_fill" + suffix,
                         z_low, z_high, doorway_y_low, corridor_height);
 
-    add_right_wall_piece("corridor_wall_right_doorway_top_" +
-                             std::to_string(slot),
+    add_right_wall_piece("corridor_wall_right_doorway_top" + suffix,
                          z_low, z_high, doorway_y_high, corridor_height);
-    add_left_wall_piece("corridor_wall_left_doorway_top_" +
-                            std::to_string(slot),
+    add_left_wall_piece("corridor_wall_left_doorway_top" + suffix,
                         z_low, z_high, doorway_y_high, corridor_height);
 
-    add_quad("corridor_wall_right_doorway_reveal_low_" +
-                 std::to_string(slot),
+    add_quad("corridor_wall_right_doorway_reveal_low" + suffix,
              glm::vec3(right_wall_x, doorway_y_low, z_low),
              glm::vec3(right_reveal_x, doorway_y_low, z_low),
              glm::vec3(right_reveal_x, doorway_y_high, z_low),
@@ -1181,8 +1180,7 @@ void BuildCorridorAndAddToVirtualScene() {
              glm::vec3(1.0f, 0.0f, 0.0f),
              glm::vec3(0.0f, 1.0f, 0.0f), kWallTextureTileSize,
              kWallTextureTileSize);
-    add_quad("corridor_wall_right_doorway_reveal_high_" +
-                 std::to_string(slot),
+    add_quad("corridor_wall_right_doorway_reveal_high" + suffix,
              glm::vec3(right_reveal_x, doorway_y_low, z_high),
              glm::vec3(right_wall_x, doorway_y_low, z_high),
              glm::vec3(right_wall_x, doorway_y_high, z_high),
@@ -1192,8 +1190,7 @@ void BuildCorridorAndAddToVirtualScene() {
              glm::vec3(1.0f, 0.0f, 0.0f),
              glm::vec3(0.0f, 1.0f, 0.0f), kWallTextureTileSize,
              kWallTextureTileSize);
-    add_quad("corridor_wall_right_doorway_reveal_top_" +
-                 std::to_string(slot),
+    add_quad("corridor_wall_right_doorway_reveal_top" + suffix,
              glm::vec3(right_wall_x, doorway_y_high, z_low),
              glm::vec3(right_reveal_x, doorway_y_high, z_low),
              glm::vec3(right_reveal_x, doorway_y_high, z_high),
@@ -1204,8 +1201,7 @@ void BuildCorridorAndAddToVirtualScene() {
              glm::vec3(0.0f, 0.0f, 1.0f), kWallTextureTileSize,
              kWallTextureTileSize);
 
-    add_quad("corridor_wall_left_doorway_reveal_low_" +
-                 std::to_string(slot),
+    add_quad("corridor_wall_left_doorway_reveal_low" + suffix,
              glm::vec3(left_reveal_x, doorway_y_low, z_low),
              glm::vec3(left_wall_x, doorway_y_low, z_low),
              glm::vec3(left_wall_x, doorway_y_high, z_low),
@@ -1215,8 +1211,7 @@ void BuildCorridorAndAddToVirtualScene() {
              glm::vec3(1.0f, 0.0f, 0.0f),
              glm::vec3(0.0f, 1.0f, 0.0f), kWallTextureTileSize,
              kWallTextureTileSize);
-    add_quad("corridor_wall_left_doorway_reveal_high_" +
-                 std::to_string(slot),
+    add_quad("corridor_wall_left_doorway_reveal_high" + suffix,
              glm::vec3(left_wall_x, doorway_y_low, z_high),
              glm::vec3(left_reveal_x, doorway_y_low, z_high),
              glm::vec3(left_reveal_x, doorway_y_high, z_high),
@@ -1226,8 +1221,7 @@ void BuildCorridorAndAddToVirtualScene() {
              glm::vec3(1.0f, 0.0f, 0.0f),
              glm::vec3(0.0f, 1.0f, 0.0f), kWallTextureTileSize,
              kWallTextureTileSize);
-    add_quad("corridor_wall_left_doorway_reveal_top_" +
-                 std::to_string(slot),
+    add_quad("corridor_wall_left_doorway_reveal_top" + suffix,
              glm::vec3(left_reveal_x, doorway_y_high, z_low),
              glm::vec3(left_wall_x, doorway_y_high, z_low),
              glm::vec3(left_wall_x, doorway_y_high, z_high),
@@ -1237,7 +1231,11 @@ void BuildCorridorAndAddToVirtualScene() {
              glm::vec3(1.0f, 0.0f, 0.0f),
              glm::vec3(0.0f, 0.0f, 1.0f), kWallTextureTileSize,
              kWallTextureTileSize);
-  }
+    }
+  };
+
+  generate_wall_meshes(false);
+  generate_wall_meshes(true);
 
   GLuint vertex_buffer_id;
   glGenBuffers(1, &vertex_buffer_id);
