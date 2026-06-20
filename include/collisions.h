@@ -2,7 +2,10 @@
 #ifndef COLLISIONS_H
 #define COLLISIONS_H
 
+#include <array>
 #include <glm/vec2.hpp>
+
+constexpr int kCorridorWalkableSectionCount = 4;
 
 struct CanonicalCorridorLayout
 {
@@ -38,6 +41,10 @@ struct CollisionResult {
 };
 
 
+std::array<WalkableBox2D, kCorridorWalkableSectionCount>
+GetCorridorWalkableSections(const CanonicalCorridorLayout &layout,
+                            float corridor_half_width, float corridor_z1,
+                            float entity_radius);
 
 CollisionResult UpdatePlayerCollision(
     glm::vec2 camera_pos,
@@ -45,4 +52,4 @@ CollisionResult UpdatePlayerCollision(
     const CanonicalCorridorLayout& layout,
     float kCorridorHalfWidth, float kCorridorZ1);
 
-#endif 
+#endif

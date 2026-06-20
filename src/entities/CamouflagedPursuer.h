@@ -16,6 +16,9 @@ struct CamouflagedPursuerState {
   float movementSpeed;
   glm::vec3 position;
   glm::vec3 forward;
+  int pathSection;
+  float pathProgress;
+  bool followingPath;
   bool useAnimation;
   StaticModel *placeholderModel;
   SalarymanAnimatedModel *animatedModel;

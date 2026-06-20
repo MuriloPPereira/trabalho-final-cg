@@ -3,36 +3,43 @@
 #include <algorithm>
 #include <glm/glm.hpp>
 
+std::array<WalkableBox2D, kCorridorWalkableSectionCount>
+GetCorridorWalkableSections(const CanonicalCorridorLayout &layout,
+                            float corridor_half_width, float corridor_z1,
+                            float entity_radius) {
+    const float straight_x_limit = corridor_half_width - entity_radius;
+    const float connector_half_width = corridor_half_width - entity_radius;
+    const float joint_overlap = entity_radius * 2.0f;
+    return {{{-straight_x_limit, straight_x_limit,
+              corridor_z1 - joint_overlap, 0.8f},
+             {-corridor_half_width, corridor_half_width,
+              layout.turn_z1 + entity_radius,
+              layout.turn_z0 + joint_overlap},
+             {layout.connector_end_x - joint_overlap,
+              layout.connector_start_x + joint_overlap,
+              layout.connector_center_z - connector_half_width,
+              layout.connector_center_z + connector_half_width},
+             {layout.exit_turn_x - corridor_half_width,
+              layout.exit_turn_x + corridor_half_width,
+              layout.turn_z1 - joint_overlap,
+              layout.turn_z0 + joint_overlap}}};
+}
+
 CollisionResult UpdatePlayerCollision(glm::vec2 camera_pos, float player_radius, const CanonicalCorridorLayout& corridor_layout, float kCorridorHalfWidth, float kCorridorZ1) {
-    const float first_x_limit = kCorridorHalfWidth - player_radius;
     const float first_z_max = 0.8f;
 
     const glm::vec2 block_offset = corridor_layout.block_offset;
     const float connector_length = corridor_layout.connector_length;
-    const float connector_half_width = kCorridorHalfWidth - player_radius;
-    const float joint_overlap = player_radius * 2.0f;
-    const float turn_z0 = corridor_layout.turn_z0;
-    const float turn_z1 = corridor_layout.turn_z1;
-    const float connector_center_z = corridor_layout.connector_center_z;
     const float connector_start_x = corridor_layout.connector_start_x;
-    const float connector_end_x = corridor_layout.connector_end_x;
-    const float exit_turn_x = corridor_layout.exit_turn_x;
 
     // Todas as caixas abaixo estão no espaço local do "Bloco 0" (tile central).
-    const WalkableBox2D corridor1 = {-first_x_limit, +first_x_limit, kCorridorZ1 - joint_overlap, first_z_max};
-    const WalkableBox2D corner_left_1 = {-kCorridorHalfWidth, +kCorridorHalfWidth,
-                                         turn_z1 + player_radius, turn_z0 + joint_overlap};
-    const WalkableBox2D connector_corridor = {connector_end_x - joint_overlap, connector_start_x + joint_overlap,
-                                              connector_center_z - connector_half_width,
-                                              connector_center_z + connector_half_width};
-    const WalkableBox2D corner_right_1 = {exit_turn_x - kCorridorHalfWidth, exit_turn_x + kCorridorHalfWidth,
-                                          turn_z1 - joint_overlap, turn_z0 + joint_overlap};
-    const WalkableBox2D walkable_boxes[] = {
-        corridor1,
-        corner_left_1,
-        connector_corridor,
-        corner_right_1
-    };
+    const std::array<WalkableBox2D, kCorridorWalkableSectionCount>
+        walkable_boxes = GetCorridorWalkableSections(
+            corridor_layout, kCorridorHalfWidth, kCorridorZ1, player_radius);
+    const WalkableBox2D& corridor1 = walkable_boxes[0];
+    const WalkableBox2D& corner_left_1 = walkable_boxes[1];
+    const WalkableBox2D& connector_corridor = walkable_boxes[2];
+    const WalkableBox2D& corner_right_1 = walkable_boxes[3];
 
     auto clampf = [](float value, float min_value, float max_value) {
         return std::max(min_value, std::min(max_value, value));
@@ -140,7 +147,7 @@ CollisionResult UpdatePlayerCollision(glm::vec2 camera_pos, float player_radius,
     result.inside_exit_turn = inside_box(corner_right_1, p.x, p.y);
     
     result.inside_connector_turn = false;
-    for (size_t i = 1; i < sizeof(walkable_boxes) / sizeof(walkable_boxes[0]); ++i) {
+    for (size_t i = 1; i < walkable_boxes.size(); ++i) {
         if (inside_box(walkable_boxes[i], p.x, p.y)) {
             result.inside_connector_turn = true;
             break;

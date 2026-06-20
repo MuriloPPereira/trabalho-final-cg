@@ -3,6 +3,7 @@
 #include "engine/Renderer.h"
 #include "engine/Shader.h"
 #include "matrices.h"
+#include "utils/Bezier.h"
 #include "utils/Constants.h"
 
 #include <algorithm>
@@ -93,20 +94,14 @@ void UpdateSalarymanNPC(SalarymanNPC &salaryman, float delta_time,
     glm::vec3 new_pos;
     float global_t = salaryman.reverseBezier ? (1.0f - salaryman.bezierT) : salaryman.bezierT;
 
-    auto eval_bezier = [](float t, glm::vec3 p0, glm::vec3 p1, glm::vec3 p2,
-                          glm::vec3 p3) {
-      float u = 1.0f - t;
-      return (u * u * u) * p0 + 3.0f * (u * u) * t * p1 +
-             3.0f * u * (t * t) * p2 + (t * t * t) * p3;
-    };
-
     if (global_t < 0.2f) {
       // Segment 1: Far turn (from -X connector to straight)
       float t = global_t / 0.2f;
-      new_pos = eval_bezier(t, glm::vec3(-6.0f, 0.0f, kCorridorZ1 - 2.0f),
-                            glm::vec3(0.0f, 0.0f, kCorridorZ1 - 2.0f),
-                            glm::vec3(0.0f, 0.0f, kCorridorZ1 + 2.0f),
-                            glm::vec3(0.0f, 0.0f, kCorridorZ1 + 4.0f));
+      new_pos = EvaluateCubicBezier(
+          t, glm::vec3(-6.0f, 0.0f, kCorridorZ1 - 2.0f),
+          glm::vec3(0.0f, 0.0f, kCorridorZ1 - 2.0f),
+          glm::vec3(0.0f, 0.0f, kCorridorZ1 + 2.0f),
+          glm::vec3(0.0f, 0.0f, kCorridorZ1 + 4.0f));
     } else if (global_t < 0.8f) {
       // Segment 2: Straight corridor
       float t = (global_t - 0.2f) / 0.6f;
@@ -116,10 +111,11 @@ void UpdateSalarymanNPC(SalarymanNPC &salaryman, float delta_time,
     } else {
       // Segment 3: Near turn (from straight to +X connector)
       float t = (global_t - 0.8f) / 0.2f;
-      new_pos = eval_bezier(t, glm::vec3(0.0f, 0.0f, kCorridorZ0 - 4.0f),
-                            glm::vec3(0.0f, 0.0f, kCorridorZ0 - 2.0f),
-                            glm::vec3(0.0f, 0.0f, kCorridorZ0 + 2.0f),
-                            glm::vec3(6.0f, 0.0f, kCorridorZ0 + 2.0f));
+      new_pos = EvaluateCubicBezier(
+          t, glm::vec3(0.0f, 0.0f, kCorridorZ0 - 4.0f),
+          glm::vec3(0.0f, 0.0f, kCorridorZ0 - 2.0f),
+          glm::vec3(0.0f, 0.0f, kCorridorZ0 + 2.0f),
+          glm::vec3(6.0f, 0.0f, kCorridorZ0 + 2.0f));
     }
 
     glm::vec3 dir = new_pos - salaryman.position;
