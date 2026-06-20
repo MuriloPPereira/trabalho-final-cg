@@ -415,6 +415,38 @@ void DrawCorridorTreadmill(const Material &floor_material,
       draw_corner(m, "corner_right_floor", "corner_right_ceiling",
                   "corner_right_wall_front", "corner_right_wall_left",
                   corner2_start, false, true, "corner_right");
+
+      // Draw the ceiling light fixtures 
+      auto draw_light_model = [&](const glm::vec3& local_pos, bool rotate_90) {
+          // Put it at the ceiling height (y=kCorridorHeight). The model geometry is around y=0.
+          glm::mat4 model = content_placement * Matrix_Translate(local_pos.x, kCorridorHeight, local_pos.z);
+          // The model length is on X-axis. Rotate 90 deg around Y to align with Z-axis corridors.
+          if (rotate_90) {
+              model = model * Matrix_Rotate_Y(3.141592f / 2.0f);
+          }
+          // Scale to make it longer and look better. Local X is the length.
+          model = model * Matrix_Scale(1.6f, 0.9f, 0.9f);
+          
+          glUniformMatrix4fv(g_model_uniform, 1, GL_FALSE, glm::value_ptr(model));
+          
+          // Create an emissive bright material
+          Material light_mat = ceiling_material;
+          light_mat.diffuse_texture_unit = 0; // Don't use ceiling texture, just fallback color
+          light_mat.ambient_strength = 2.5f; // Extremely bright ambient (acts like emission)
+          light_mat.specular_strength = 0.9f;
+          ApplyMaterial(light_mat);
+          DrawVirtualObject("Fixture_Plane");
+          DrawVirtualObject("Tubes_Cylinder");
+          DrawVirtualObject("Diffuser_Plane.002");
+      };
+
+      const float straight_spacing = kCorridorLength / 5.0f;
+      for (int i = 0; i < 4; ++i) {
+          draw_light_model(glm::vec3(0.0f, 0.0f, -(i + 1) * straight_spacing), false);
+      }
+      draw_light_model(glm::vec3(0.0f, 0.0f, turn_z0 - 0.5f * kCornerLength), false);
+      draw_light_model(glm::vec3(connector_start_x - 0.5f * connector_length, 0.0f, connector_center_z), true);
+      draw_light_model(glm::vec3(exit_turn_x, 0.0f, turn_z0 - 0.5f * kCornerLength), false);
     };
 
     // (2) 3-Tile Treadmill: side blocks are the canonical previous/next

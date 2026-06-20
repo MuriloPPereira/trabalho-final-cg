@@ -286,6 +286,9 @@ int Application::Run(int argc, char *argv[]) {
   BuildPostersAndAddToVirtualScene();
   BuildNoSmokingSignAndAddToVirtualScene();
   BuildDoorwayPlaceholderAndAddToVirtualScene();
+  ObjModel ceiling_light_model("assets/ceiling_light.obj");
+  ComputeNormals(&ceiling_light_model);
+  BuildTrianglesAndAddToVirtualScene(&ceiling_light_model);
   if (!LoadModelWithAssimpToVirtualScene("assets/metal_door_2.glb", "metal_door_2"))
     std::exit(EXIT_FAILURE);
   if (!LoadSalarymanStaticModel(g_SalarymanStaticModel,

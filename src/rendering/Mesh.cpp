@@ -21,12 +21,12 @@ ObjModel::ObjModel(const char *filename, const char *basepath,
                    bool triangulate) {
   printf("Carregando objetos do arquivo \"%s\"...\n", filename);
 
-  std::string fullpath(filename);
+  std::string fullpath_resolved = ResolveExistingPath(filename);
   std::string dirname;
   if (basepath == NULL) {
-    auto i = fullpath.find_last_of("/");
+    auto i = fullpath_resolved.find_last_of("/\\");
     if (i != std::string::npos) {
-      dirname = fullpath.substr(0, i + 1);
+      dirname = fullpath_resolved.substr(0, i + 1);
       basepath = dirname.c_str();
     }
   }
@@ -34,7 +34,7 @@ ObjModel::ObjModel(const char *filename, const char *basepath,
   std::string warn;
   std::string err;
   bool ret = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err,
-                              filename, basepath, triangulate);
+                              fullpath_resolved.c_str(), basepath, triangulate);
 
   if (!err.empty())
     fprintf(stderr, "\n%s\n", err.c_str());
