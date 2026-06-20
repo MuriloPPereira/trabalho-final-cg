@@ -36,6 +36,7 @@ float g_TorsoPositionY = 0.0f;
 bool g_UsePerspectiveProjection = true;
 bool g_ShowInfoText = true;
 bool g_UseThirdPersonCamera = false;
+bool g_PlayerInputEnabled = true;
 double g_LastCursorPosX = 0.0;
 double g_LastCursorPosY = 0.0;
 
@@ -84,6 +85,9 @@ void UpdateThirdPersonCameraFromPlayer() {
 }
 
 void UpdateCameraFromInput(GLFWwindow *window, float delta_time) {
+  if (!g_PlayerInputEnabled)
+    return;
+
   const bool sprint_active =
       glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
       glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
@@ -210,6 +214,9 @@ void FramebufferSizeCallback(GLFWwindow *window, int width, int height) {
 // Função callback chamada sempre que o usuário aperta algum dos botões do
 // mouse
 void MouseButtonCallback(GLFWwindow *window, int button, int action, int mods) {
+  if (!g_PlayerInputEnabled)
+    return;
+
   if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
     // Se o usuário pressionou o botão esquerdo do mouse, guardamos a
     // posição atual do cursor nas variáveis g_LastCursorPosX e
@@ -258,6 +265,9 @@ void MouseButtonCallback(GLFWwindow *window, int button, int action, int mods) {
 // em cima da janela OpenGL.
 void CursorPosCallback(GLFWwindow *window, double xpos, double ypos) {
   (void)window;
+  if (!g_PlayerInputEnabled)
+    return;
+
   if (g_FirstMouseInput) {
     g_LastCursorPosX = xpos;
     g_LastCursorPosY = ypos;
@@ -306,6 +316,9 @@ void KeyCallback(GLFWwindow *window, int key, int scancode, int action,
   // Se o usuário pressionar a tecla ESC, fechamos a janela.
   if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
     glfwSetWindowShouldClose(window, GL_TRUE);
+
+  if (!g_PlayerInputEnabled)
+    return;
 
   // O código abaixo implementa a seguinte lógica:
   //   Se apertar tecla X       então g_AngleX += delta;

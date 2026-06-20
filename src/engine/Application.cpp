@@ -13,6 +13,8 @@
 #include "utils/Constants.h"
 #include "world/Corridor.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -24,7 +26,100 @@
 #include <vector>
 
 namespace {
-const float kPursuerFailMessageDuration = 3.0f;
+const float kPursuerDeathDuration = 2.5f;
+const float kPursuerDeathFocusHeight = 1.25f;
+
+struct PursuerDeathSequence {
+  bool active;
+  float elapsed;
+  glm::vec4 startCameraPosition;
+  glm::vec4 startViewVector;
+  glm::vec4 endCameraPosition;
+  glm::vec3 focusPosition;
+
+  PursuerDeathSequence()
+      : active(false), elapsed(0.0f), startCameraPosition(0.0f),
+        startViewVector(0.0f, 0.0f, -1.0f, 0.0f),
+        endCameraPosition(0.0f), focusPosition(0.0f) {}
+};
+
+float SmoothStep(float t) {
+  t = std::max(0.0f, std::min(t, 1.0f));
+  return t * t * (3.0f - 2.0f * t);
+}
+
+void BeginPursuerDeathSequence(PursuerDeathSequence &death_sequence) {
+  death_sequence.active = true;
+  death_sequence.elapsed = 0.0f;
+  death_sequence.startCameraPosition = g_CameraPosition;
+  death_sequence.startViewVector = ComputeCameraViewVector();
+  death_sequence.focusPosition =
+      g_CamouflagedPursuer.position +
+      glm::vec3(0.0f, kPursuerDeathFocusHeight, 0.0f);
+
+  const glm::vec3 start_position(death_sequence.startCameraPosition.x,
+                                 death_sequence.startCameraPosition.y,
+                                 death_sequence.startCameraPosition.z);
+  glm::vec3 focus_to_camera = start_position - death_sequence.focusPosition;
+  float start_distance = glm::length(focus_to_camera);
+  if (start_distance < 0.0001f) {
+    focus_to_camera =
+        -glm::vec3(death_sequence.startViewVector.x,
+                   death_sequence.startViewVector.y,
+                   death_sequence.startViewVector.z);
+    if (glm::length(focus_to_camera) < 0.0001f)
+      focus_to_camera = glm::vec3(0.0f, 0.0f, 1.0f);
+    start_distance = 0.0f;
+  }
+
+  focus_to_camera = glm::normalize(focus_to_camera);
+  const float end_distance =
+      std::max(1.15f, std::min(start_distance + 0.35f, 2.60f));
+  glm::vec3 end_position =
+      death_sequence.focusPosition + focus_to_camera * end_distance;
+  end_position.y = std::max(0.75f, std::min(end_position.y, 2.40f));
+  death_sequence.endCameraPosition =
+      glm::vec4(end_position.x, end_position.y, end_position.z, 1.0f);
+
+  g_PlayerInputEnabled = false;
+  g_LeftMouseButtonPressed = false;
+  g_RightMouseButtonPressed = false;
+  g_MiddleMouseButtonPressed = false;
+  g_PlayerCharacter.moving = false;
+}
+
+void ApplyPursuerDeathCamera(const PursuerDeathSequence &death_sequence,
+                             glm::vec4 &camera_position,
+                             glm::vec4 &camera_view_vector) {
+  const float progress = death_sequence.elapsed / kPursuerDeathDuration;
+  const float position_blend = SmoothStep(progress / 0.70f);
+  const float look_blend = SmoothStep(progress / 0.35f);
+
+  camera_position =
+      death_sequence.startCameraPosition * (1.0f - position_blend) +
+      death_sequence.endCameraPosition * position_blend;
+  camera_position.w = 1.0f;
+
+  glm::vec3 desired_view =
+      death_sequence.focusPosition -
+      glm::vec3(camera_position.x, camera_position.y, camera_position.z);
+  if (glm::length(desired_view) < 0.0001f)
+    desired_view = glm::vec3(0.0f, 0.0f, -1.0f);
+  else
+    desired_view = glm::normalize(desired_view);
+
+  const glm::vec3 start_view(death_sequence.startViewVector.x,
+                             death_sequence.startViewVector.y,
+                             death_sequence.startViewVector.z);
+  glm::vec3 blended_view =
+      start_view * (1.0f - look_blend) + desired_view * look_blend;
+  if (glm::length(blended_view) < 0.0001f)
+    blended_view = desired_view;
+  else
+    blended_view = glm::normalize(blended_view);
+  camera_view_vector =
+      glm::vec4(blended_view.x, blended_view.y, blended_view.z, 0.0f);
+}
 
 void ResetGameAfterPursuerCatch() {
   const glm::vec4 initial_camera_position(0.0f, 1.6f, -1.0f, 1.0f);
@@ -37,6 +132,7 @@ void ResetGameAfterPursuerCatch() {
   g_CameraYaw = 0.0f;
   g_CameraPitch = 0.0f;
   g_FirstMouseInput = true;
+  g_PlayerInputEnabled = true;
   InitializePlayerCharacterFromCamera(g_CameraPosition, g_CameraYaw);
   g_PlayerCharacter.moving = false;
   g_PlayerCharacter.locomotionScale = 1.0f;
@@ -339,17 +435,21 @@ int Application::Run(int argc, char *argv[]) {
   // Ficamos em um loop infinito, renderizando, até que o usuário feche a
   // janela
   float last_frame_time = (float)glfwGetTime();
-  float pursuer_fail_message_time = 0.0f;
+  PursuerDeathSequence pursuer_death;
   while (!glfwWindowShouldClose(window)) {
     float current_frame_time = (float)glfwGetTime();
     float delta_time = current_frame_time - last_frame_time;
     last_frame_time = current_frame_time;
-    if (pursuer_fail_message_time > 0.0f) {
-      pursuer_fail_message_time -= delta_time;
-      if (pursuer_fail_message_time < 0.0f)
-        pursuer_fail_message_time = 0.0f;
+    bool death_reset_this_frame = false;
+    if (pursuer_death.active) {
+      pursuer_death.elapsed += delta_time;
+      if (pursuer_death.elapsed >= kPursuerDeathDuration) {
+        ResetGameAfterPursuerCatch();
+        pursuer_death = PursuerDeathSequence();
+        death_reset_this_frame = true;
+      }
     }
-    if (!g_GameWon)
+    if (!g_GameWon && !pursuer_death.active && !death_reset_this_frame)
       UpdateCameraFromInput(window, delta_time);
 
     // Aqui executamos as operações de renderização
@@ -372,30 +472,29 @@ int Application::Run(int argc, char *argv[]) {
     glUseProgram(g_GpuProgramID);
 
     glm::vec4 camera_position_c = g_CameraPosition;
-    glm::vec4 camera_front_vector = ComputeCameraViewVector();
-    glm::vec4 camera_lookat_l = camera_position_c + camera_front_vector;
-    glm::vec4 camera_view_vector = camera_lookat_l - camera_position_c;
-    glm::vec4 camera_up_vector = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
-    if (!g_GameWon)
+    if (!g_GameWon && !pursuer_death.active && !death_reset_this_frame)
       UpdateSalarymanNPC(g_SalarymanNPC, delta_time, camera_position_c);
     const glm::vec3 pursuer_target =
         g_UseThirdPersonCamera
             ? g_PlayerCharacter.position
             : glm::vec3(camera_position_c.x, camera_position_c.y,
                         camera_position_c.z);
-    if (!g_GameWon)
+    if (!g_GameWon && !pursuer_death.active && !death_reset_this_frame)
       UpdateCamouflagedPursuer(g_CamouflagedPursuer, delta_time,
                                pursuer_target);
 
-    if (!g_GameWon && HasCamouflagedPursuerCaughtPlayer(
+    if (!g_GameWon && !pursuer_death.active &&
+        HasCamouflagedPursuerCaughtPlayer(
                           g_CamouflagedPursuer, pursuer_target)) {
-      ResetGameAfterPursuerCatch();
-      pursuer_fail_message_time = kPursuerFailMessageDuration;
-      camera_position_c = g_CameraPosition;
-      camera_front_vector = ComputeCameraViewVector();
-      camera_lookat_l = camera_position_c + camera_front_vector;
-      camera_view_vector = camera_lookat_l - camera_position_c;
+      BeginPursuerDeathSequence(pursuer_death);
     }
+
+    camera_position_c = g_CameraPosition;
+    glm::vec4 camera_view_vector = ComputeCameraViewVector();
+    if (pursuer_death.active)
+      ApplyPursuerDeathCamera(pursuer_death, camera_position_c,
+                              camera_view_vector);
+    glm::vec4 camera_up_vector = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
 
     // Computamos a matriz "View" utilizando os parâmetros da câmera para
     // definir o sistema de coordenadas da câmera.  Veja slides 2-14, 184-190
@@ -417,7 +516,12 @@ int Application::Run(int argc, char *argv[]) {
       // Projeção Perspectiva.
       // Para definição do field of view (FOV), veja slides 205-215 do
       // documento Aula_09_Projecoes.pdf.
-      float field_of_view = 3.141592 / 3.0f;
+      float field_of_view = 3.141592f / 3.0f;
+      if (pursuer_death.active) {
+        const float death_progress =
+            pursuer_death.elapsed / kPursuerDeathDuration;
+        field_of_view -= (3.141592f / 22.5f) * SmoothStep(death_progress);
+      }
       projection =
           Matrix_Perspective(field_of_view, g_ScreenRatio, nearplane, farplane);
     } else {
@@ -474,9 +578,22 @@ int Application::Run(int argc, char *argv[]) {
       TextRendering_PrintString(window, "7: Two Doors | 8: Scary Poster", -0.98f, -0.95f, 1.0f);
     }
 
-    if (pursuer_fail_message_time > 0.0f) {
-      TextRendering_PrintString(window, "CAUGHT - EXIT 8 PROGRESS RESET",
-                                -0.68f, 0.0f, 1.2f);
+    if (pursuer_death.active) {
+      const std::string death_message = "YOU DIED";
+      const std::string caught_message = "CAUGHT";
+      const float death_scale = 2.4f;
+      const float caught_scale = 1.2f;
+      const float char_width = TextRendering_CharWidth(window);
+      const float death_x =
+          -0.5f * static_cast<float>(death_message.size()) * char_width *
+          death_scale;
+      const float caught_x =
+          -0.5f * static_cast<float>(caught_message.size()) * char_width *
+          caught_scale;
+      TextRendering_PrintString(window, death_message, death_x, 0.08f,
+                                death_scale);
+      TextRendering_PrintString(window, caught_message, caught_x, -0.08f,
+                                caught_scale);
     }
 
     if (g_GameWon) {

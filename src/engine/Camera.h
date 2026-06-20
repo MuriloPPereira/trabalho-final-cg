@@ -23,6 +23,7 @@ extern float g_TorsoPositionY;
 extern bool g_UsePerspectiveProjection;
 extern bool g_ShowInfoText;
 extern bool g_UseThirdPersonCamera;
+extern bool g_PlayerInputEnabled;
 extern double g_LastCursorPosX;
 extern double g_LastCursorPosY;
 
