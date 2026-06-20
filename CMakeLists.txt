@@ -80,9 +80,16 @@ target_include_directories(${EXECUTABLE_NAME} BEFORE PRIVATE
   ${PROJECT_SOURCE_DIR}/third_party/miniaudio
 )
 
-set(LOCAL_MSYS2_UCRT_PREFIX "${PROJECT_SOURCE_DIR}/third_party/msys2-ucrt64/ucrt64")
-if(EXISTS "${LOCAL_MSYS2_UCRT_PREFIX}/lib/cmake/assimp-6.0/assimpConfig.cmake")
-  set(CMAKE_PREFIX_PATH "${LOCAL_MSYS2_UCRT_PREFIX};${CMAKE_PREFIX_PATH}")
+set(USE_BUNDLED_MSYS2_ASSIMP OFF)
+if(WIN32 AND MINGW)
+  set(LOCAL_MSYS2_UCRT_PREFIX
+      "${PROJECT_SOURCE_DIR}/third_party/msys2-ucrt64/ucrt64")
+  if(EXISTS
+      "${LOCAL_MSYS2_UCRT_PREFIX}/lib/cmake/assimp-6.0/assimpConfig.cmake")
+    set(CMAKE_PREFIX_PATH
+        "${LOCAL_MSYS2_UCRT_PREFIX};${CMAKE_PREFIX_PATH}")
+    set(USE_BUNDLED_MSYS2_ASSIMP ON)
+  endif()
 endif()
 find_package(assimp CONFIG REQUIRED)
 target_link_libraries(${EXECUTABLE_NAME} assimp::assimp)
@@ -130,19 +137,55 @@ if(WIN32)
 
   target_link_libraries(${EXECUTABLE_NAME} ${LIBGLFW} gdi32 opengl32)
 
-  if(EXISTS "${LOCAL_MSYS2_UCRT_PREFIX}/bin/libassimp-6.dll")
-    add_custom_command(TARGET ${EXECUTABLE_NAME} POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different
-              "${LOCAL_MSYS2_UCRT_PREFIX}/bin/libassimp-6.dll"
-              "$<TARGET_FILE_DIR:${EXECUTABLE_NAME}>")
-    add_custom_command(TARGET ${EXECUTABLE_NAME} POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different
-              "${LOCAL_MSYS2_UCRT_PREFIX}/bin/libminizip-1.dll"
-              "$<TARGET_FILE_DIR:${EXECUTABLE_NAME}>")
-    add_custom_command(TARGET ${EXECUTABLE_NAME} POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different
-              "${LOCAL_MSYS2_UCRT_PREFIX}/bin/zlib1.dll"
-              "$<TARGET_FILE_DIR:${EXECUTABLE_NAME}>")
+  if(MINGW AND USE_BUNDLED_MSYS2_ASSIMP)
+    set(BUNDLED_ASSIMP_RUNTIME_DLLS
+      "${LOCAL_MSYS2_UCRT_PREFIX}/bin/libassimp-6.dll"
+      "${LOCAL_MSYS2_UCRT_PREFIX}/bin/libminizip-1.dll"
+      "${LOCAL_MSYS2_UCRT_PREFIX}/bin/zlib1.dll"
+    )
+
+    foreach(runtime_dll IN LISTS BUNDLED_ASSIMP_RUNTIME_DLLS)
+      if(NOT EXISTS "${runtime_dll}")
+        message(FATAL_ERROR
+          "The bundled Assimp package is incomplete: ${runtime_dll} is missing. "
+          "Required DLLs under third_party/msys2-ucrt64/ucrt64/bin must be "
+          "included in the repository.")
+      endif()
+      add_custom_command(TARGET ${EXECUTABLE_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${runtime_dll}"
+                "$<TARGET_FILE_DIR:${EXECUTABLE_NAME}>")
+    endforeach()
+
+    # The bundled UCRT Assimp DLL and the MinGW-built executable depend on
+    # these runtime libraries. Copy them from the active compiler toolchain so
+    # the output directory can run without relying on the developer's PATH.
+    get_filename_component(MINGW_RUNTIME_DIRECTORY
+                           "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    set(MINGW_RUNTIME_DLL_NAMES
+      libgcc_s_seh-1.dll
+      libstdc++-6.dll
+      libwinpthread-1.dll
+      libbz2-1.dll
+    )
+    foreach(runtime_dll_name IN LISTS MINGW_RUNTIME_DLL_NAMES)
+      unset(runtime_dll_path CACHE)
+      find_file(runtime_dll_path
+        NAMES "${runtime_dll_name}"
+        HINTS "${MINGW_RUNTIME_DIRECTORY}"
+        NO_DEFAULT_PATH)
+      if(NOT runtime_dll_path)
+        message(FATAL_ERROR
+          "Required MinGW runtime ${runtime_dll_name} was not found beside "
+          "${CMAKE_CXX_COMPILER}. Use a complete MSYS2 UCRT64 toolchain.")
+      endif()
+      add_custom_command(TARGET ${EXECUTABLE_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${runtime_dll_path}"
+                "$<TARGET_FILE_DIR:${EXECUTABLE_NAME}>")
+      unset(runtime_dll_path CACHE)
+      unset(runtime_dll_path)
+    endforeach()
   endif()
 
 elseif(UNIX)

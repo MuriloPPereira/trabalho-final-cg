@@ -296,9 +296,15 @@ void ActivateNewLogicalCorridor(int physical_side) {
                g_CurrentExitLevel);
       }
     } else {
-      g_CurrentExitLevel = 0;
-      printf("\n--- INCORRECT -> EXIT LEVEL: %d ---\n\n",
+      // A wrong decision restarts the same unnumbered, anomaly-free reference
+      // corridor lifecycle used after a pursuer catch. The transition system
+      // will still recenter the player and activate entities for this freshly
+      // initialized tutorial corridor after this function returns.
+      InitializeCorridorLifecycle();
+      printf("\n--- INCORRECT -> REFERENCE CORRIDOR (EXIT LEVEL: %d) ---\n\n",
              g_CurrentExitLevel);
+      fflush(stdout);
+      return;
     }
   }
 
@@ -403,8 +409,6 @@ CorridorContent GenerateCorridorContent(int corridor_id,
   const float poster_offset = 0.02f;
   const float poster_wall_offset = kCorridorHalfWidth - poster_offset;
   const float spacing = kCorridorLength / (kPosterCount + 1);
-  const float salaryman_spawn_distance = kCorridorLength * 0.70f;
-  const float salaryman_end_margin = 6.0f;
 
   CorridorContent content;
   content.corridorId = corridor_id;
@@ -494,12 +498,7 @@ CorridorContent GenerateCorridorContent(int corridor_id,
       layout.exit_turn_x, light_y, layout.turn_z0 - 0.5f * kCornerLength));
 
   content.salarymanForward = -frame.contentForward;
-  const float clamped_spawn_distance =
-      std::max(0.0f, std::min(salaryman_spawn_distance,
-                              frame.corridorLength - salaryman_end_margin));
-  content.salarymanSpawnPosition =
-      frame.contentOrigin + frame.contentForward * clamped_spawn_distance;
-  content.salarymanSpawnPosition.y = 0.0f;
+  content.salarymanSpawnPosition = ComputeSalarymanSpawnPosition(frame);
 
   return content;
 }
@@ -675,22 +674,25 @@ void LogCorridorTransition(const char *reason, int traversal_direction,
 }
 
 glm::vec3 ComputeSalarymanSpawnPosition(const CorridorContentFrame &frame) {
-  const float salaryman_spawn_distance = frame.corridorLength * 0.70f;
-  const float salaryman_end_margin = 6.0f;
+  const CanonicalCorridorLayout layout = GetCanonicalCorridorLayout();
+  const float connector_inset =
+      std::min(kCornerLength, 0.5f * layout.connector_length);
+  const glm::vec3 salaryman_forward = -frame.contentForward;
+  const bool moves_canonical_forward =
+      glm::dot(salaryman_forward, glm::vec3(0.0f, 0.0f, -1.0f)) >= 0.0f;
 
-  glm::vec3 forward = frame.contentForward;
-  if (glm::length(forward) < 0.0001f)
-    forward = glm::vec3(0.0f, 0.0f, -1.0f);
-  else
-    forward = glm::normalize(forward);
+  if (moves_canonical_forward) {
+    // Enter through the previous block's connector, whose exit turn joins the
+    // visible corridor at the canonical origin.
+    return glm::vec3(layout.connector_end_x - layout.block_offset.x +
+                         connector_inset,
+                     0.0f,
+                     layout.connector_center_z - layout.block_offset.y);
+  }
 
-  const float clamped_spawn_distance =
-      std::max(0.0f, std::min(salaryman_spawn_distance,
-                              frame.corridorLength - salaryman_end_margin));
-  glm::vec3 spawn_position =
-      frame.contentOrigin + forward * clamped_spawn_distance;
-  spawn_position.y = 0.0f;
-  return spawn_position;
+  // Enter in reverse through the current block's connector and its first turn.
+  return glm::vec3(layout.connector_start_x - connector_inset, 0.0f,
+                   layout.connector_center_z);
 }
 
 const char *PlayerSectionName(int player_section) {

@@ -9,7 +9,8 @@ Esse é normalmente suficiente em uma instalação de Linux Ubuntu:
 ```bash
 sudo apt-get install build-essential make libx11-dev libxrandr-dev \
                      libxinerama-dev libxcursor-dev libxcb1-dev libxext-dev \
-                     libxrender-dev libxfixes-dev libxau-dev libxdmcp-dev
+                     libxrender-dev libxfixes-dev libxau-dev libxdmcp-dev \
+                     libassimp-dev
 ```
 
 Se você usa Linux Mint, talvez seja necessário instalar mais algumas bibliotecas:
@@ -36,6 +37,11 @@ cmake -B build -S .          # Cria e configura diretório de build
 cmake --build build          # Faz a compilação
 cmake --build build -- run   # Executa o código compilado
 ```
+
+No Linux, o CMake usa o pacote Assimp instalado pelo sistema (`libassimp-dev`).
+O pacote MSYS2/UCRT incluído em `third_party/` é usado somente na compilação
+MinGW no Windows. O suporte de áudio miniaudio continua usando as bibliotecas
+de threads, carregamento dinâmico e matemática encontradas pelo CMake.
 
 > [!TIP]
 > Esta é a melhor opção, pois o CMake gera automaticamente uma
@@ -139,6 +145,12 @@ da lista o compilador GCC que você instalou com o MSYS/MinGW.
 Veja mais instruções de uso do CMake no VSCode em:
 
 https://github.com/microsoft/vscode-cmake-tools/blob/main/docs/README.md
+
+Ao compilar com MinGW, o CMake copia automaticamente para o diretório do
+executável as DLLs do Assimp incluídas no repositório e as DLLs de runtime do
+toolchain ativo (`libgcc`, `libstdc++`, `libwinpthread` e `libbz2`). Se alguma
+delas não estiver disponível, a configuração falhará com uma mensagem clara;
+nesse caso, use uma instalação completa do MSYS2 UCRT64.
 
 ## Soluções de Problemas
 

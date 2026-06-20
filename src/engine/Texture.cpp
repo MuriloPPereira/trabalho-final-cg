@@ -1,5 +1,7 @@
 #include "engine/Texture.h"
 
+#include "utils/FileUtils.h"
+
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -9,7 +11,8 @@ GLuint g_NumLoadedTextures = 0;
 
 // Função que carrega uma imagem para ser utilizada como textura
 void LoadTextureImage(const char *filename, GLint wrap_s, GLint wrap_t) {
-  std::string fullpath = std::string("../../data/") + filename;
+  const std::string requested_path = std::string("data/") + filename;
+  const std::string fullpath = ResolveExistingPath(requested_path.c_str());
   printf("Carregando imagem \"%s\"... ", fullpath.c_str());
 
   // Primeiro fazemos a leitura da imagem do disco

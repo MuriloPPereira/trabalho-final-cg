@@ -190,6 +190,9 @@ void UpdateCameraFromInput(GLFWwindow *window, float delta_time) {
 // operacional for redimensionada, por consequência alterando o tamanho do
 // "framebuffer" (região de memória onde são armazenados os pixels da imagem).
 void FramebufferSizeCallback(GLFWwindow *window, int width, int height) {
+  if (width <= 0 || height <= 0)
+    return;
+
   // Indicamos que queremos renderizar em toda região do framebuffer. A
   // função "glViewport" define o mapeamento das "normalized device
   // coordinates" (NDC) para "pixel coordinates".  Essa é a operação de

@@ -18,6 +18,8 @@ struct SalarymanNPC {
   bool useBezier;
   bool reverseBezier;
   float bezierT;
+  float pathStartProgress;
+  float pathTravelDistance;
   float spawnGraceTimer; // seconds remaining before distance-despawn activates
   glm::vec3 p0, p1, p2, p3;
   StaticModel *model;

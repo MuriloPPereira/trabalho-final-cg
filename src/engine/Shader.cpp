@@ -1,5 +1,7 @@
 #include "engine/Shader.h"
 
+#include "utils/FileUtils.h"
+
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -37,27 +39,9 @@ GLint g_light_quadratic_uniforms[kMaxLights];
 // Aula_03_Rendering_Pipeline_Grafico.pdf.
 //
 void LoadShadersFromFiles() {
-  // Note que o caminho para os arquivos "shader_vertex.glsl" e
-  // "shader_fragment.glsl" estão fixados, sendo que assumimos a existência
-  // da seguinte estrutura no sistema de arquivos:
-  //
-  //    + FCG_Lab_01/
-  //    |
-  //    +--+ bin/
-  //    |  |
-  //    |  +--+ Release/  (ou Debug/ ou Linux/)
-  //    |     |
-  //    |     o-- main.exe
-  //    |
-  //    +--+ src/
-  //       |
-  //       o-- shader_vertex.glsl
-  //       |
-  //       o-- shader_fragment.glsl
-  //
-  GLuint vertex_shader_id = LoadShader_Vertex("../../src/shader_vertex.glsl");
+  GLuint vertex_shader_id = LoadShader_Vertex("src/shader_vertex.glsl");
   GLuint fragment_shader_id =
-      LoadShader_Fragment("../../src/shader_fragment.glsl");
+      LoadShader_Fragment("src/shader_fragment.glsl");
 
   // Deletamos o programa de GPU anterior, caso ele exista.
   if (g_GpuProgramID != 0)
@@ -150,15 +134,17 @@ GLuint LoadShader_Fragment(const char *filename) {
 // Função auxilar, utilizada pelas duas funções acima. Carrega código de GPU
 // de um arquivo GLSL e faz sua compilação.
 void LoadShader(const char *filename, GLuint shader_id) {
+  const std::string fullpath = ResolveExistingPath(filename);
+
   // Lemos o arquivo de texto indicado pela variável "filename"
   // e colocamos seu conteúdo em memória, apontado pela variável
   // "shader_string".
   std::ifstream file;
   try {
     file.exceptions(std::ifstream::failbit);
-    file.open(filename);
+    file.open(fullpath.c_str());
   } catch (std::exception &e) {
-    fprintf(stderr, "ERROR: Cannot open file \"%s\".\n", filename);
+    fprintf(stderr, "ERROR: Cannot open file \"%s\".\n", fullpath.c_str());
     std::exit(EXIT_FAILURE);
   }
   std::stringstream shader;
@@ -191,14 +177,14 @@ void LoadShader(const char *filename, GLuint shader_id) {
 
     if (!compiled_ok) {
       output += "ERROR: OpenGL compilation of \"";
-      output += filename;
+      output += fullpath;
       output += "\" failed.\n";
       output += "== Start of compilation log\n";
       output += log;
       output += "== End of compilation log\n";
     } else {
       output += "WARNING: OpenGL compilation of \"";
-      output += filename;
+      output += fullpath;
       output += "\".\n";
       output += "== Start of compilation log\n";
       output += log;
@@ -214,7 +200,7 @@ void LoadShader(const char *filename, GLuint shader_id) {
   if (!compiled_ok) {
     fprintf(stderr,
             "ERROR: Aborting due to shader compilation failure in \"%s\".\n",
-            filename);
+            fullpath.c_str());
     std::exit(EXIT_FAILURE);
   }
 }

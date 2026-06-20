@@ -1,6 +1,6 @@
-bin
-build
-build-*/
+/bin/
+/build/
+/build-*/
 
 # CMake/build outputs
 CMakeFiles/
@@ -13,6 +13,12 @@ compile_commands.json
 *.dll
 *.exe
 *.pdb
+
+# Runtime DLLs required by the bundled Windows Assimp import library.
+# Keep these versioned so a fresh clone can configure, link, and run.
+!third_party/msys2-ucrt64/ucrt64/bin/libassimp-6.dll
+!third_party/msys2-ucrt64/ucrt64/bin/libminizip-1.dll
+!third_party/msys2-ucrt64/ucrt64/bin/zlib1.dll
 
 # Generated Assimp XML export. The game loads the FBX asset, not this file.
 assets/*.assxml
