@@ -79,6 +79,7 @@ struct CorridorContent {
 struct CorridorInstance { CorridorState state; CorridorContent content; };
 
 extern int g_CurrentExitLevel;
+extern bool g_GameWon;
 extern int g_CurrentCorridorSequenceId;
 extern int g_NextCorridorSequenceId;
 extern int g_LastEnteredPhysicalSide;

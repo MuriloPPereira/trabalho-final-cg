@@ -13,6 +13,7 @@
 #include <glm/vec2.hpp>
 
 int g_CurrentExitLevel = 0;
+bool g_GameWon = false;
 int g_CurrentCorridorSequenceId = 0;
 int g_NextCorridorSequenceId = 1;
 int g_LastEnteredPhysicalSide = 0;
@@ -237,6 +238,7 @@ void RefreshCandidateCorridorStates() {
 }
 void InitializeCorridorLifecycle() {
   g_CurrentExitLevel = 0;
+  g_GameWon = false;
   g_CurrentCorridorSequenceId = 0;
   g_NextCorridorSequenceId = 1;
   g_LastEnteredPhysicalSide = 0;
@@ -255,7 +257,7 @@ void InitializeCorridorLifecycle() {
 }
 
 void ActivateNewLogicalCorridor(int physical_side) {
-  if (physical_side == 0)
+  if (physical_side == 0 || g_GameWon)
     return;
 
 
@@ -272,14 +274,12 @@ void ActivateNewLogicalCorridor(int physical_side) {
     const bool had_anomaly = g_CurrentCorridorInstance.state.has_anomaly;
     const bool is_correct =
         (went_forward && !had_anomaly) || (!went_forward && had_anomaly);
-    const bool crossed_exit_8_corridor =
-        g_CurrentCorridorInstance.state.entrance_progress == 8;
-
     if (is_correct) {
-      if (crossed_exit_8_corridor) {
+      g_CurrentExitLevel = std::min(g_CurrentExitLevel + 1, 8);
+      if (g_CurrentExitLevel == 8) {
+        g_GameWon = true;
         printf("\n*** YOU WIN! You crossed Exit 8! ***\n\n");
       } else {
-        g_CurrentExitLevel = std::min(g_CurrentExitLevel + 1, 8);
         printf("\n--- CORRECT -> EXIT LEVEL: %d ---\n\n",
                g_CurrentExitLevel);
       }

@@ -344,7 +344,8 @@ int Application::Run(int argc, char *argv[]) {
       if (pursuer_fail_message_time < 0.0f)
         pursuer_fail_message_time = 0.0f;
     }
-    UpdateCameraFromInput(window, delta_time);
+    if (!g_GameWon)
+      UpdateCameraFromInput(window, delta_time);
 
     // Aqui executamos as operações de renderização
 
@@ -370,17 +371,19 @@ int Application::Run(int argc, char *argv[]) {
     glm::vec4 camera_lookat_l = camera_position_c + camera_front_vector;
     glm::vec4 camera_view_vector = camera_lookat_l - camera_position_c;
     glm::vec4 camera_up_vector = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
-    UpdateSalarymanNPC(g_SalarymanNPC, delta_time, camera_position_c);
+    if (!g_GameWon)
+      UpdateSalarymanNPC(g_SalarymanNPC, delta_time, camera_position_c);
     const glm::vec3 pursuer_target =
         g_UseThirdPersonCamera
             ? g_PlayerCharacter.position
             : glm::vec3(camera_position_c.x, camera_position_c.y,
                         camera_position_c.z);
-    UpdateCamouflagedPursuer(g_CamouflagedPursuer, delta_time,
-                             pursuer_target);
+    if (!g_GameWon)
+      UpdateCamouflagedPursuer(g_CamouflagedPursuer, delta_time,
+                               pursuer_target);
 
-    if (HasCamouflagedPursuerCaughtPlayer(g_CamouflagedPursuer,
-                                          pursuer_target)) {
+    if (!g_GameWon && HasCamouflagedPursuerCaughtPlayer(
+                          g_CamouflagedPursuer, pursuer_target)) {
       ResetGameAfterPursuerCatch();
       pursuer_fail_message_time = kPursuerFailMessageDuration;
       camera_position_c = g_CameraPosition;
@@ -468,6 +471,24 @@ int Application::Run(int argc, char *argv[]) {
     if (pursuer_fail_message_time > 0.0f) {
       TextRendering_PrintString(window, "CAUGHT - EXIT 8 PROGRESS RESET",
                                 -0.68f, 0.0f, 1.2f);
+    }
+
+    if (g_GameWon) {
+      const std::string win_message = "YOU WIN - EXIT 8 REACHED";
+      const std::string exit_message = "PRESS ESC TO EXIT";
+      const float win_scale = 2.0f;
+      const float exit_scale = 1.0f;
+      const float char_width = TextRendering_CharWidth(window);
+      const float win_x =
+          -0.5f * static_cast<float>(win_message.size()) * char_width *
+          win_scale;
+      const float exit_x =
+          -0.5f * static_cast<float>(exit_message.size()) * char_width *
+          exit_scale;
+
+      TextRendering_PrintString(window, win_message, win_x, 0.10f, win_scale);
+      TextRendering_PrintString(window, exit_message, exit_x, -0.05f,
+                                exit_scale);
     }
 
     // O framebuffer onde OpenGL executa as operações de renderização não
