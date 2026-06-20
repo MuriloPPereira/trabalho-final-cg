@@ -415,6 +415,11 @@ void KeyCallback(GLFWwindow *window, int key, int scancode, int action,
     printf("Next corridor forced to: Two Doors\n");
     fflush(stdout);
   }
+  if (key == GLFW_KEY_8 && action == GLFW_PRESS) {
+    g_ForceNextAnomalyType = kCorridorAnomalyScaryPoster;
+    printf("Next corridor forced to: Scary Poster\n");
+    fflush(stdout);
+  }
 }
 
 // Definimos o callback para impressão de erros da GLFW no terminal

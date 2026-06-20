@@ -54,6 +54,8 @@ const char *CorridorAnomalyTypeName(CorridorAnomalyType anomaly_type) {
     return "modified_floor";
   case kCorridorAnomalyTwoDoors:
     return "two_doors";
+  case kCorridorAnomalyScaryPoster:
+    return "scary_poster";
   default:
     return "unknown";
   }
@@ -422,6 +424,9 @@ CorridorContent GenerateCorridorContent(int corridor_id,
     poster.slot = slot;
     if (anomaly_type == kCorridorAnomalyIdenticalPosters) {
       poster.textureIndex = 0;
+    } else if (anomaly_type == kCorridorAnomalyScaryPoster &&
+               slot == kScaryPosterSlot) {
+      poster.textureIndex = kScaryPosterTextureIndex;
     } else {
       poster.textureIndex = GetPosterTextureIndex(corridor_id, slot);
     }

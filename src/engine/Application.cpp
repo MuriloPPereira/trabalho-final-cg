@@ -144,16 +144,18 @@ int Application::Run(int argc, char *argv[]) {
   LoadTextureImage("poster2.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // 4
   LoadTextureImage("poster3.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // 5
   LoadTextureImage("poster4.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // 6
+  const GLuint kScaryPosterTextureUnit = g_NumLoadedTextures;
+  LoadTextureImage("scary.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // 7
   const GLuint kNoSmokingTextureUnit = g_NumLoadedTextures;
-  LoadTextureImage("no_smoking.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // 7
+  LoadTextureImage("no_smoking.jpg", GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE); // 8
   const GLuint kSalarymanTextureUnit = g_NumLoadedTextures;
-  CreateSolidColorTexture(178, 168, 150); // 8
+  CreateSolidColorTexture(178, 168, 150); // 9
   const GLuint kDoorwayPlaceholderTextureUnit = g_NumLoadedTextures;
-  CreateSolidColorTexture(0, 0, 0); // 9
+  CreateSolidColorTexture(0, 0, 0); // 10
   const GLuint kTactileStraightTextureUnit = g_NumLoadedTextures;
-  LoadTextureImage("tactile_straight.jpg", GL_MIRRORED_REPEAT, GL_MIRRORED_REPEAT); // 10
+  LoadTextureImage("tactile_straight.jpg", GL_MIRRORED_REPEAT, GL_MIRRORED_REPEAT); // 11
   const GLuint kTactileDotsTextureUnit = g_NumLoadedTextures;
-  LoadTextureImage("tactile_dots.jpg", GL_MIRRORED_REPEAT, GL_MIRRORED_REPEAT); // 11
+  LoadTextureImage("tactile_dots.jpg", GL_MIRRORED_REPEAT, GL_MIRRORED_REPEAT); // 12
   std::vector<GLuint> exit_sign_texture_units;
   exit_sign_texture_units.reserve(kExitSignCount);
   for (int progress = 0; progress < kExitSignCount; ++progress) {
@@ -262,7 +264,7 @@ int Application::Run(int argc, char *argv[]) {
   ceiling_material.uv_offset = glm::vec2(0.0f, 0.0f);
 
   std::vector<Material> poster_materials;
-  poster_materials.reserve(kPosterCount);
+  poster_materials.reserve(kPosterCount + 1);
   for (int i = 0; i < kPosterCount; ++i) {
     Material poster_material;
     poster_material.diffuse_texture_unit = kPosterTextureUnits[i];
@@ -273,6 +275,9 @@ int Application::Run(int argc, char *argv[]) {
     poster_material.uv_offset = glm::vec2(0.0f, 0.0f);
     poster_materials.push_back(poster_material);
   }
+  Material scary_poster_material = poster_materials[0];
+  scary_poster_material.diffuse_texture_unit = kScaryPosterTextureUnit;
+  poster_materials.push_back(scary_poster_material);
 
   Material no_smoking_sign_material;
   no_smoking_sign_material.diffuse_texture_unit = kNoSmokingTextureUnit;
@@ -466,7 +471,7 @@ int Application::Run(int argc, char *argv[]) {
       TextRendering_PrintString(window, "4: Camouflaged Pursuer", -0.98f, -0.80f, 1.0f);
       TextRendering_PrintString(window, "5: Giant NPC", -0.98f, -0.85f, 1.0f);
       TextRendering_PrintString(window, "6: Modified Floor", -0.98f, -0.90f, 1.0f);
-      TextRendering_PrintString(window, "7: Two Doors", -0.98f, -0.95f, 1.0f);
+      TextRendering_PrintString(window, "7: Two Doors | 8: Scary Poster", -0.98f, -0.95f, 1.0f);
     }
 
     if (pursuer_fail_message_time > 0.0f) {
