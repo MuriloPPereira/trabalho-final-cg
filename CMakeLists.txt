@@ -77,6 +77,7 @@ add_executable(${EXECUTABLE_NAME} ${SOURCES})
 target_include_directories(${EXECUTABLE_NAME} BEFORE PRIVATE
   ${PROJECT_SOURCE_DIR}/include
   ${PROJECT_SOURCE_DIR}/src
+  ${PROJECT_SOURCE_DIR}/third_party/miniaudio
 )
 
 set(LOCAL_MSYS2_UCRT_PREFIX "${PROJECT_SOURCE_DIR}/third_party/msys2-ucrt64/ucrt64")
@@ -127,7 +128,7 @@ if(WIN32)
 
   message(STATUS "LIBGLFW = ${LIBGLFW}")
 
-  target_link_libraries(${EXECUTABLE_NAME} ${LIBGLFW} gdi32 opengl32 winmm dsound)
+  target_link_libraries(${EXECUTABLE_NAME} ${LIBGLFW} gdi32 opengl32)
 
   if(EXISTS "${LOCAL_MSYS2_UCRT_PREFIX}/bin/libassimp-6.dll")
     add_custom_command(TARGET ${EXECUTABLE_NAME} POST_BUILD
@@ -157,14 +158,17 @@ elseif(UNIX)
 
   find_package(OpenGL REQUIRED)
   find_package(X11 REQUIRED)
-  find_library(MATH_LIBRARY m)
   set(THREADS_PREFER_PTHREAD_FLAG ON)
   find_package(Threads REQUIRED)
+  find_library(MATH_LIBRARY m)
+  if(NOT MATH_LIBRARY)
+    message(FATAL_ERROR "The system math library (libm) is required by miniaudio.")
+  endif()
   target_link_libraries(${EXECUTABLE_NAME}
     ${CMAKE_DL_LIBS}
     ${MATH_LIBRARY}
     ${PROJECT_SOURCE_DIR}/lib-linux/libglfw3.a
-    ${CMAKE_THREAD_LIBS_INIT}
+    Threads::Threads
     ${OPENGL_LIBRARIES}
     ${X11_LIBRARIES}
     ${X11_Xrandr_LIB}

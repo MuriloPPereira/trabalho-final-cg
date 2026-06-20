@@ -31,7 +31,7 @@ private:
   uint32_t average_bytes_per_second_;
   uint16_t block_align_;
   uint16_t bits_per_sample_;
-  void *sound_buffer_;
+  void *backend_;
   float gain_;
   float playback_rate_;
   float volume_;

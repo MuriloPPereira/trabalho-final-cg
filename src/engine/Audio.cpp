@@ -8,32 +8,22 @@
 #include <cstdio>
 #include <cstring>
 
-#ifdef _WIN32
-#include <windows.h>
-#include <dsound.h>
-#endif
+#define MINIAUDIO_IMPLEMENTATION
+#include <miniaudio.h>
 
 namespace {
-#ifdef _WIN32
-IDirectSound8 *g_direct_sound = NULL;
+ma_engine g_audio_engine;
+bool g_audio_engine_initialized = false;
 
-LONG DirectSoundVolume(float volume) {
-  if (volume <= 0.00001f)
-    return DSBVOLUME_MIN;
-  const float hundredths_of_db = 2000.0f * std::log10(volume);
-  return static_cast<LONG>(std::max(
-      static_cast<float>(DSBVOLUME_MIN),
-      std::min(static_cast<float>(DSBVOLUME_MAX), hundredths_of_db)));
-}
+struct MiniaudioSoundBackend {
+  ma_audio_buffer audio_buffer;
+  ma_sound sound;
+  bool audio_buffer_initialized;
+  bool sound_initialized;
 
-DWORD DirectSoundFrequency(uint32_t sample_rate, float playback_rate) {
-  const double requested =
-      static_cast<double>(sample_rate) * static_cast<double>(playback_rate);
-  return static_cast<DWORD>(std::max(
-      static_cast<double>(DSBFREQUENCY_MIN),
-      std::min(static_cast<double>(DSBFREQUENCY_MAX), requested)));
-}
-#endif
+  MiniaudioSoundBackend()
+      : audio_buffer_initialized(false), sound_initialized(false) {}
+};
 
 uint32_t ReadUint32LE(const unsigned char *bytes) {
   return static_cast<uint32_t>(bytes[0]) |
@@ -102,66 +92,108 @@ bool ParseWav(const std::vector<unsigned char> &wav_data,
   sample_data_size -= sample_data_size % block_align;
   return sample_data_size > 0;
 }
+
+ma_format MiniaudioFormat(uint16_t bits_per_sample) {
+  switch (bits_per_sample) {
+  case 8:
+    return ma_format_u8;
+  case 16:
+    return ma_format_s16;
+  case 24:
+    return ma_format_s24;
+  case 32:
+    return ma_format_s32;
+  default:
+    return ma_format_unknown;
+  }
+}
+
+void ApplySoundControls(MiniaudioSoundBackend *backend, float gain,
+                        float volume, float playback_rate) {
+  if (backend == NULL || !backend->sound_initialized)
+    return;
+  ma_sound_set_volume(&backend->sound, gain * volume);
+  ma_sound_set_pitch(&backend->sound, playback_rate);
+}
 } // namespace
 
 bool InitializeAudio(void *native_window_handle) {
-#ifdef _WIN32
-  if (g_direct_sound != NULL)
+  (void)native_window_handle;
+  if (g_audio_engine_initialized)
     return true;
 
-  HRESULT result = DirectSoundCreate8(NULL, &g_direct_sound, NULL);
-  if (FAILED(result)) {
-    fprintf(stderr, "ERROR: DirectSound initialization failed (0x%08lx).\n",
-            static_cast<unsigned long>(result));
-    g_direct_sound = NULL;
+  const ma_engine_config config = ma_engine_config_init();
+  const ma_result result = ma_engine_init(&config, &g_audio_engine);
+  if (result != MA_SUCCESS) {
+    fprintf(stderr, "ERROR: miniaudio initialization failed (%d).\n",
+            static_cast<int>(result));
     return false;
   }
 
-  HWND window = static_cast<HWND>(native_window_handle);
-  if (window == NULL)
-    window = GetDesktopWindow();
-  result = g_direct_sound->SetCooperativeLevel(window, DSSCL_NORMAL);
-  if (FAILED(result)) {
-    fprintf(stderr,
-            "ERROR: DirectSound cooperative level failed (0x%08lx).\n",
-            static_cast<unsigned long>(result));
-    g_direct_sound->Release();
-    g_direct_sound = NULL;
-    return false;
-  }
+  g_audio_engine_initialized = true;
   return true;
-#else
-  (void)native_window_handle;
-  return false;
-#endif
 }
 
 void ShutdownAudio() {
-#ifdef _WIN32
-  if (g_direct_sound != NULL) {
-    g_direct_sound->Release();
-    g_direct_sound = NULL;
-  }
-#endif
+  if (!g_audio_engine_initialized)
+    return;
+  ma_engine_uninit(&g_audio_engine);
+  g_audio_engine_initialized = false;
 }
 
 LoopingWavSound::LoopingWavSound(const char *filename)
     : path_(ResolveExistingPath(filename)), sample_data_offset_(0),
       sample_data_size_(0), format_tag_(0), channels_(0), sample_rate_(0),
       average_bytes_per_second_(0), block_align_(0), bits_per_sample_(0),
-      sound_buffer_(NULL), gain_(1.0f), playback_rate_(1.0f), volume_(1.0f),
-      playing_(false),
-      error_reported_(false) {
+      backend_(NULL), gain_(1.0f), playback_rate_(1.0f), volume_(1.0f),
+      playing_(false), error_reported_(false) {
   if (!ReadWholeFile(path_, wav_data_) ||
       !ParseWav(wav_data_, sample_data_offset_, sample_data_size_, format_tag_,
                 channels_, sample_rate_, average_bytes_per_second_,
                 block_align_, bits_per_sample_)) {
     fprintf(stderr, "ERROR: Cannot load WAV file \"%s\".\n", path_.c_str());
     error_reported_ = true;
+    return;
   }
+
+  const ma_format format = MiniaudioFormat(bits_per_sample_);
+  if (format == ma_format_unknown) {
+    fprintf(stderr, "ERROR: Unsupported WAV bit depth in \"%s\".\n",
+            path_.c_str());
+    error_reported_ = true;
+    return;
+  }
+
+  MiniaudioSoundBackend *backend = new MiniaudioSoundBackend();
+  const ma_uint64 frame_count = sample_data_size_ / block_align_;
+  const ma_audio_buffer_config config = ma_audio_buffer_config_init(
+      format, channels_, frame_count, wav_data_.data() + sample_data_offset_,
+      NULL);
+  const ma_result result =
+      ma_audio_buffer_init(&config, &backend->audio_buffer);
+  if (result != MA_SUCCESS) {
+    fprintf(stderr, "ERROR: Cannot create audio buffer for \"%s\" (%d).\n",
+            path_.c_str(), static_cast<int>(result));
+    delete backend;
+    error_reported_ = true;
+    return;
+  }
+
+  backend->audio_buffer_initialized = true;
+  backend_ = backend;
 }
 
-LoopingWavSound::~LoopingWavSound() { Stop(); }
+LoopingWavSound::~LoopingWavSound() {
+  Stop();
+  MiniaudioSoundBackend *backend =
+      static_cast<MiniaudioSoundBackend *>(backend_);
+  if (backend != NULL) {
+    if (backend->audio_buffer_initialized)
+      ma_audio_buffer_uninit(&backend->audio_buffer);
+    delete backend;
+    backend_ = NULL;
+  }
+}
 
 void LoopingWavSound::SetPlaying(bool should_play) {
   if (!should_play) {
@@ -169,144 +201,75 @@ void LoopingWavSound::SetPlaying(bool should_play) {
     return;
   }
 
-  if (playing_)
+  if (playing_ || error_reported_)
     return;
-  if (error_reported_)
-    return;
-
-#ifdef _WIN32
-  if (g_direct_sound == NULL) {
-    if (!error_reported_) {
-      fprintf(stderr, "ERROR: Audio system is not initialized for \"%s\".\n",
-              path_.c_str());
-      error_reported_ = true;
-    }
-    return;
-  }
-
-  WAVEFORMATEX format = {};
-  format.wFormatTag = format_tag_;
-  format.nChannels = channels_;
-  format.nSamplesPerSec = sample_rate_;
-  format.nAvgBytesPerSec = average_bytes_per_second_;
-  format.nBlockAlign = block_align_;
-  format.wBitsPerSample = bits_per_sample_;
-
-  DSBUFFERDESC description = {};
-  description.dwSize = sizeof(DSBUFFERDESC);
-  description.dwFlags = DSBCAPS_CTRLVOLUME | DSBCAPS_CTRLFREQUENCY |
-                        DSBCAPS_GETCURRENTPOSITION2;
-  description.dwBufferBytes = sample_data_size_;
-  description.lpwfxFormat = &format;
-
-  IDirectSoundBuffer *buffer = NULL;
-  HRESULT result =
-      g_direct_sound->CreateSoundBuffer(&description, &buffer, NULL);
-  if (SUCCEEDED(result)) {
-    void *first_region = NULL;
-    void *second_region = NULL;
-    DWORD first_size = 0;
-    DWORD second_size = 0;
-    result = buffer->Lock(0, sample_data_size_, &first_region, &first_size,
-                          &second_region, &second_size, 0);
-    if (SUCCEEDED(result)) {
-      const unsigned char *samples = wav_data_.data() + sample_data_offset_;
-      std::vector<unsigned char> gained_samples;
-      if (bits_per_sample_ == 16 && std::abs(gain_ - 1.0f) > 0.0001f) {
-        gained_samples.resize(sample_data_size_);
-        for (size_t offset = 0; offset + 1 < sample_data_size_; offset += 2) {
-          const int16_t sample =
-              static_cast<int16_t>(ReadUint16LE(samples + offset));
-          const int scaled = static_cast<int>(std::lround(sample * gain_));
-          const int16_t clipped = static_cast<int16_t>(
-              std::max(-32768, std::min(32767, scaled)));
-          const uint16_t encoded = static_cast<uint16_t>(clipped);
-          gained_samples[offset] =
-              static_cast<unsigned char>(encoded & 0xff);
-          gained_samples[offset + 1] =
-              static_cast<unsigned char>((encoded >> 8) & 0xff);
-        }
-        samples = gained_samples.data();
-      }
-      std::memcpy(first_region, samples, first_size);
-      if (second_region != NULL && second_size > 0)
-        std::memcpy(second_region, samples + first_size, second_size);
-      buffer->Unlock(first_region, first_size, second_region, second_size);
-      buffer->SetVolume(DirectSoundVolume(volume_));
-      buffer->SetFrequency(
-          DirectSoundFrequency(sample_rate_, playback_rate_));
-      buffer->SetCurrentPosition(0);
-      result = buffer->Play(0, 0, DSBPLAY_LOOPING);
-      if (SUCCEEDED(result)) {
-        sound_buffer_ = buffer;
-        playing_ = true;
-        return;
-      }
-    }
-    buffer->Release();
-  }
-
-  if (!error_reported_) {
-    fprintf(stderr, "ERROR: Cannot play WAV file \"%s\" (0x%08lx).\n",
-            path_.c_str(), static_cast<unsigned long>(result));
-    error_reported_ = true;
-  }
-#else
-  if (!error_reported_) {
-    fprintf(stderr,
-            "WARNING: WAV playback is not available on this platform: \"%s\".\n",
+  if (!g_audio_engine_initialized) {
+    fprintf(stderr, "ERROR: Audio system is not initialized for \"%s\".\n",
             path_.c_str());
     error_reported_ = true;
+    return;
   }
-#endif
+
+  MiniaudioSoundBackend *backend =
+      static_cast<MiniaudioSoundBackend *>(backend_);
+  if (backend == NULL || !backend->audio_buffer_initialized) {
+    error_reported_ = true;
+    return;
+  }
+
+  ma_result result = ma_sound_init_from_data_source(
+      &g_audio_engine, &backend->audio_buffer, MA_SOUND_FLAG_NO_SPATIALIZATION,
+      NULL, &backend->sound);
+  if (result != MA_SUCCESS) {
+    fprintf(stderr, "ERROR: Cannot initialize sound \"%s\" (%d).\n",
+            path_.c_str(), static_cast<int>(result));
+    error_reported_ = true;
+    return;
+  }
+
+  backend->sound_initialized = true;
+  ma_sound_set_looping(&backend->sound, MA_TRUE);
+  ma_sound_seek_to_pcm_frame(&backend->sound, 0);
+  ApplySoundControls(backend, gain_, volume_, playback_rate_);
+  result = ma_sound_start(&backend->sound);
+  if (result != MA_SUCCESS) {
+    fprintf(stderr, "ERROR: Cannot play sound \"%s\" (%d).\n",
+            path_.c_str(), static_cast<int>(result));
+    ma_sound_uninit(&backend->sound);
+    backend->sound_initialized = false;
+    error_reported_ = true;
+    return;
+  }
+
+  playing_ = true;
 }
 
 void LoopingWavSound::SetGain(float gain) {
-  const float new_gain = std::max(0.0f, std::min(gain, 4.0f));
-  if (std::abs(new_gain - gain_) <= 0.0001f)
-    return;
-
-  const bool restart = playing_;
-  Stop();
-  gain_ = new_gain;
-  if (restart)
-    SetPlaying(true);
+  gain_ = std::max(0.0f, std::min(gain, 4.0f));
+  ApplySoundControls(static_cast<MiniaudioSoundBackend *>(backend_), gain_,
+                     volume_, playback_rate_);
 }
 
 void LoopingWavSound::SetPlaybackRate(float playback_rate) {
-  playback_rate_ =
-      std::max(0.25f, std::min(playback_rate, 4.0f));
-#ifdef _WIN32
-  if (sound_buffer_ != NULL) {
-    IDirectSoundBuffer *buffer =
-        static_cast<IDirectSoundBuffer *>(sound_buffer_);
-    buffer->SetFrequency(
-        DirectSoundFrequency(sample_rate_, playback_rate_));
-  }
-#endif
+  playback_rate_ = std::max(0.25f, std::min(playback_rate, 4.0f));
+  ApplySoundControls(static_cast<MiniaudioSoundBackend *>(backend_), gain_,
+                     volume_, playback_rate_);
 }
 
 void LoopingWavSound::SetVolume(float volume) {
   volume_ = std::max(0.0f, std::min(volume, 1.0f));
-#ifdef _WIN32
-  if (sound_buffer_ != NULL) {
-    IDirectSoundBuffer *buffer =
-        static_cast<IDirectSoundBuffer *>(sound_buffer_);
-    buffer->SetVolume(DirectSoundVolume(volume_));
-  }
-#endif
+  ApplySoundControls(static_cast<MiniaudioSoundBackend *>(backend_), gain_,
+                     volume_, playback_rate_);
 }
 
 void LoopingWavSound::Stop() {
-  if (!playing_)
-    return;
-
-#ifdef _WIN32
-  IDirectSoundBuffer *buffer = static_cast<IDirectSoundBuffer *>(sound_buffer_);
-  buffer->Stop();
-  buffer->SetCurrentPosition(0);
-  buffer->Release();
-  sound_buffer_ = NULL;
-#endif
+  MiniaudioSoundBackend *backend =
+      static_cast<MiniaudioSoundBackend *>(backend_);
+  if (backend != NULL && backend->sound_initialized) {
+    ma_sound_stop(&backend->sound);
+    ma_sound_seek_to_pcm_frame(&backend->sound, 0);
+    ma_sound_uninit(&backend->sound);
+    backend->sound_initialized = false;
+  }
   playing_ = false;
 }
