@@ -394,43 +394,48 @@ void KeyCallback(GLFWwindow *window, int key, int scancode, int action,
 
   // Keyboard shortcuts for testing anomalies
   if (key == GLFW_KEY_1 && action == GLFW_PRESS) {
-    g_ForceNextAnomalyType = kCorridorAnomalyNone;
+    ForceNextCorridorAnomaly(kCorridorAnomalyNone);
     printf("Next corridor forced to: Normal (None)\n");
     fflush(stdout);
   }
   if (key == GLFW_KEY_2 && action == GLFW_PRESS) {
-    g_ForceNextAnomalyType = kCorridorAnomalyIdenticalPosters;
+    ForceNextCorridorAnomaly(kCorridorAnomalyIdenticalPosters);
     printf("Next corridor forced to: Identical Posters\n");
     fflush(stdout);
   }
   if (key == GLFW_KEY_3 && action == GLFW_PRESS) {
-    g_ForceNextAnomalyType = kCorridorAnomalyNoSmokingSigns;
+    ForceNextCorridorAnomaly(kCorridorAnomalyNoSmokingSigns);
     printf("Next corridor forced to: No Smoking Signs\n");
     fflush(stdout);
   }
   if (key == GLFW_KEY_4 && action == GLFW_PRESS) {
-    g_ForceNextAnomalyType = kCorridorAnomalyCamouflagedPursuer;
+    ForceNextCorridorAnomaly(kCorridorAnomalyCamouflagedPursuer);
     printf("Next corridor forced to: Camouflaged Pursuer\n");
     fflush(stdout);
   }
   if (key == GLFW_KEY_5 && action == GLFW_PRESS) {
-    g_ForceNextAnomalyType = kCorridorAnomalyGiantNPC;
+    ForceNextCorridorAnomaly(kCorridorAnomalyGiantNPC);
     printf("Next corridor forced to: Giant NPC\n");
     fflush(stdout);
   }
   if (key == GLFW_KEY_6 && action == GLFW_PRESS) {
-    g_ForceNextAnomalyType = kCorridorAnomalyModifiedFloor;
+    ForceNextCorridorAnomaly(kCorridorAnomalyModifiedFloor);
     printf("Next corridor forced to: Modified Floor\n");
     fflush(stdout);
   }
   if (key == GLFW_KEY_7 && action == GLFW_PRESS) {
-    g_ForceNextAnomalyType = kCorridorAnomalyTwoDoors;
+    ForceNextCorridorAnomaly(kCorridorAnomalyTwoDoors);
     printf("Next corridor forced to: Two Doors\n");
     fflush(stdout);
   }
   if (key == GLFW_KEY_8 && action == GLFW_PRESS) {
-    g_ForceNextAnomalyType = kCorridorAnomalyScaryPoster;
+    ForceNextCorridorAnomaly(kCorridorAnomalyScaryPoster);
     printf("Next corridor forced to: Scary Poster\n");
+    fflush(stdout);
+  }
+  if (key == GLFW_KEY_9 && action == GLFW_PRESS) {
+    ForceNextCorridorAnomaly(kCorridorAnomalyDoorKnocking);
+    printf("Next corridor forced to: Door Knocking\n");
     fflush(stdout);
   }
 }

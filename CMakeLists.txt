@@ -8,6 +8,7 @@
 set(SOURCES
   src/main.cpp
   src/engine/Application.cpp
+  src/engine/Audio.cpp
   src/engine/Camera.cpp
   src/engine/DebugText.cpp
   src/engine/Renderer.cpp
@@ -126,7 +127,7 @@ if(WIN32)
 
   message(STATUS "LIBGLFW = ${LIBGLFW}")
 
-  target_link_libraries(${EXECUTABLE_NAME} ${LIBGLFW} gdi32 opengl32)
+  target_link_libraries(${EXECUTABLE_NAME} ${LIBGLFW} gdi32 opengl32 winmm dsound)
 
   if(EXISTS "${LOCAL_MSYS2_UCRT_PREFIX}/bin/libassimp-6.dll")
     add_custom_command(TARGET ${EXECUTABLE_NAME} POST_BUILD

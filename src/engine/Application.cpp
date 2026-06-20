@@ -1,5 +1,6 @@
 #include "engine/Application.h"
 
+#include "engine/Audio.h"
 #include "engine/Camera.h"
 #include "engine/DebugText.h"
 #include "engine/Renderer.h"
@@ -21,6 +22,10 @@
 #include <glad/glad.h>
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
+#ifdef _WIN32
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3native.h>
+#endif
 #include <glm/gtc/type_ptr.hpp>
 #include <string>
 #include <vector>
@@ -46,6 +51,22 @@ struct PursuerDeathSequence {
 float SmoothStep(float t) {
   t = std::max(0.0f, std::min(t, 1.0f));
   return t * t * (3.0f - 2.0f * t);
+}
+
+float FootstepVolumeForDistance(const glm::vec3 &source,
+                                const glm::vec3 &listener) {
+  const float dx = source.x - listener.x;
+  const float dz = source.z - listener.z;
+  const float distance = std::sqrt(dx * dx + dz * dz);
+  const float full_volume_distance = 2.5f;
+  const float silent_distance = 28.0f;
+  if (distance <= full_volume_distance)
+    return 1.0f;
+  if (distance >= silent_distance)
+    return 0.0f;
+  return 1.0f -
+         (distance - full_volume_distance) /
+             (silent_distance - full_volume_distance);
 }
 
 void BeginPursuerDeathSequence(PursuerDeathSequence &death_sequence) {
@@ -201,6 +222,12 @@ int Application::Run(int argc, char *argv[]) {
 
   // Indicamos que as chamadas OpenGL deverão renderizar nesta janela
   glfwMakeContextCurrent(window);
+
+#ifdef _WIN32
+  InitializeAudio(glfwGetWin32Window(window));
+#else
+  InitializeAudio(NULL);
+#endif
 
   // Carregamento de todas funções definidas por OpenGL 3.3, utilizando a
   // biblioteca GLAD.
@@ -436,6 +463,13 @@ int Application::Run(int argc, char *argv[]) {
   // janela
   float last_frame_time = (float)glfwGetTime();
   PursuerDeathSequence pursuer_death;
+  LoopingWavSound door_knock_sound("data/audio/door_knock.wav");
+  LoopingWavSound walking_steps_sound("data/audio/walking_steps.wav");
+  LoopingWavSound running_steps_sound("data/audio/running_steps.wav");
+  LoopingWavSound salaryman_steps_sound("data/audio/walking_steps.wav");
+  LoopingWavSound pursuer_steps_sound("data/audio/running_steps.wav");
+  pursuer_steps_sound.SetGain(1.60f);
+  pursuer_steps_sound.SetPlaybackRate(1.15f);
   while (!glfwWindowShouldClose(window)) {
     float current_frame_time = (float)glfwGetTime();
     float delta_time = current_frame_time - last_frame_time;
@@ -449,8 +483,37 @@ int Application::Run(int argc, char *argv[]) {
         death_reset_this_frame = true;
       }
     }
+    const int corridor_id_before_input = g_CurrentCorridorSequenceId;
+    const glm::vec3 player_position_before_input =
+        g_UseThirdPersonCamera
+            ? g_PlayerCharacter.position
+            : glm::vec3(g_CameraPosition.x, g_CameraPosition.y,
+                        g_CameraPosition.z);
     if (!g_GameWon && !pursuer_death.active && !death_reset_this_frame)
       UpdateCameraFromInput(window, delta_time);
+    const glm::vec3 player_position_after_input =
+        g_UseThirdPersonCamera
+            ? g_PlayerCharacter.position
+            : glm::vec3(g_CameraPosition.x, g_CameraPosition.y,
+                        g_CameraPosition.z);
+    const float player_delta_x =
+        player_position_after_input.x - player_position_before_input.x;
+    const float player_delta_z =
+        player_position_after_input.z - player_position_before_input.z;
+    const bool movement_key_down =
+        glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS ||
+        glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS ||
+        glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS ||
+        glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS;
+    const bool player_moved_this_frame =
+        movement_key_down &&
+        player_delta_x * player_delta_x + player_delta_z * player_delta_z >
+            0.00000001f;
+    const bool sprint_key_down =
+        glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
+        glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
+    const bool teleported_this_frame =
+        corridor_id_before_input != g_CurrentCorridorSequenceId;
 
     // Aqui executamos as operações de renderização
 
@@ -472,22 +535,80 @@ int Application::Run(int argc, char *argv[]) {
     glUseProgram(g_GpuProgramID);
 
     glm::vec4 camera_position_c = g_CameraPosition;
+    const glm::vec3 salaryman_position_before_update =
+        g_SalarymanNPC.position;
     if (!g_GameWon && !pursuer_death.active && !death_reset_this_frame)
       UpdateSalarymanNPC(g_SalarymanNPC, delta_time, camera_position_c);
+    const glm::vec3 salaryman_delta =
+        g_SalarymanNPC.position - salaryman_position_before_update;
+    const bool salaryman_moved_this_frame =
+        g_SalarymanNPC.active &&
+        salaryman_delta.x * salaryman_delta.x +
+                salaryman_delta.z * salaryman_delta.z >
+            0.00000001f;
     const glm::vec3 pursuer_target =
         g_UseThirdPersonCamera
             ? g_PlayerCharacter.position
             : glm::vec3(camera_position_c.x, camera_position_c.y,
                         camera_position_c.z);
+    const glm::vec3 pursuer_position_before_update =
+        g_CamouflagedPursuer.position;
     if (!g_GameWon && !pursuer_death.active && !death_reset_this_frame)
       UpdateCamouflagedPursuer(g_CamouflagedPursuer, delta_time,
                                pursuer_target);
+    const glm::vec3 pursuer_delta =
+        g_CamouflagedPursuer.position - pursuer_position_before_update;
+    const bool pursuer_moved_this_frame =
+        g_CamouflagedPursuer.active && g_CamouflagedPursuer.visible &&
+        g_CamouflagedPursuer.chasing &&
+        pursuer_delta.x * pursuer_delta.x +
+                pursuer_delta.z * pursuer_delta.z >
+            0.00000001f;
 
     if (!g_GameWon && !pursuer_death.active &&
         HasCamouflagedPursuerCaughtPlayer(
                           g_CamouflagedPursuer, pursuer_target)) {
       BeginPursuerDeathSequence(pursuer_death);
     }
+
+    const bool door_knock_should_play =
+        !g_GameWon && !pursuer_death.active &&
+        g_LastPlayerSection == 0 &&
+        g_CurrentCorridorInstance.state.has_anomaly &&
+        g_CurrentCorridorInstance.state.anomaly_type ==
+            kCorridorAnomalyDoorKnocking;
+    door_knock_sound.SetPlaying(door_knock_should_play);
+
+    const bool footstep_audio_enabled =
+        !g_GameWon && !pursuer_death.active && !death_reset_this_frame &&
+        g_PlayerInputEnabled && player_moved_this_frame;
+    if (footstep_audio_enabled && sprint_key_down) {
+      walking_steps_sound.Stop();
+      running_steps_sound.SetPlaying(true);
+    } else if (footstep_audio_enabled) {
+      running_steps_sound.Stop();
+      walking_steps_sound.SetPlaying(true);
+    } else {
+      walking_steps_sound.Stop();
+      running_steps_sound.Stop();
+    }
+
+    const bool entity_audio_enabled =
+        !g_GameWon && !pursuer_death.active && !death_reset_this_frame &&
+        !teleported_this_frame;
+    const float salaryman_volume =
+        FootstepVolumeForDistance(g_SalarymanNPC.position, pursuer_target);
+    salaryman_steps_sound.SetVolume(salaryman_volume);
+    salaryman_steps_sound.SetPlaying(
+        entity_audio_enabled && salaryman_moved_this_frame &&
+        salaryman_volume > 0.0f);
+
+    const float pursuer_volume = FootstepVolumeForDistance(
+        g_CamouflagedPursuer.position, pursuer_target);
+    pursuer_steps_sound.SetVolume(pursuer_volume);
+    pursuer_steps_sound.SetPlaying(
+        entity_audio_enabled && pursuer_moved_this_frame &&
+        pursuer_volume > 0.0f);
 
     camera_position_c = g_CameraPosition;
     glm::vec4 camera_view_vector = ComputeCameraViewVector();
@@ -556,13 +677,6 @@ int Application::Run(int argc, char *argv[]) {
     if (g_UseThirdPersonCamera)
       DrawPlayerCharacter(g_PlayerCharacter, player_material);
 
-    // Imprimimos na tela os ângulos de Euler que controlam a rotação do
-    // terceiro cubo.
-    TextRendering_ShowEulerAngles(window);
-
-    // Imprimimos na informação sobre a matriz de projeção sendo utilizada.
-    TextRendering_ShowProjection(window);
-
     // Imprimimos na tela informação sobre o número de quadros renderizados
     // por segundo (frames per second).
     TextRendering_ShowFramesPerSecond(window);
@@ -575,7 +689,7 @@ int Application::Run(int argc, char *argv[]) {
       TextRendering_PrintString(window, "4: Camouflaged Pursuer", -0.98f, -0.80f, 1.0f);
       TextRendering_PrintString(window, "5: Giant NPC", -0.98f, -0.85f, 1.0f);
       TextRendering_PrintString(window, "6: Modified Floor", -0.98f, -0.90f, 1.0f);
-      TextRendering_PrintString(window, "7: Two Doors | 8: Scary Poster", -0.98f, -0.95f, 1.0f);
+      TextRendering_PrintString(window, "7: Two Doors | 8: Scary Poster | 9: Door Knock", -0.98f, -0.95f, 1.0f);
     }
 
     if (pursuer_death.active) {
@@ -631,6 +745,12 @@ int Application::Run(int argc, char *argv[]) {
   }
 
   // Finalizamos o uso dos recursos do sistema operacional
+  salaryman_steps_sound.Stop();
+  pursuer_steps_sound.Stop();
+  walking_steps_sound.Stop();
+  running_steps_sound.Stop();
+  door_knock_sound.Stop();
+  ShutdownAudio();
   glfwTerminate();
 
   // Fim do programa

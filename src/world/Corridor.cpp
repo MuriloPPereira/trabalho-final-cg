@@ -56,6 +56,8 @@ const char *CorridorAnomalyTypeName(CorridorAnomalyType anomaly_type) {
     return "two_doors";
   case kCorridorAnomalyScaryPoster:
     return "scary_poster";
+  case kCorridorAnomalyDoorKnocking:
+    return "door_knocking";
   default:
     return "unknown";
   }
@@ -240,6 +242,12 @@ void RefreshCandidateCorridorStates() {
   g_PositiveCandidateCorridorInstance = CreateCorridorInstanceFromState(
       next_state, glm::vec3(0.0f, 0.0f, -1.0f));
 }
+
+void ForceNextCorridorAnomaly(CorridorAnomalyType anomaly_type) {
+  g_ForceNextAnomalyType = anomaly_type;
+  RefreshCandidateCorridorStates();
+}
+
 void InitializeCorridorLifecycle() {
   g_CurrentExitLevel = 0;
   g_GameWon = false;

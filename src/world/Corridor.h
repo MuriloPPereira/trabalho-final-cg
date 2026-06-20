@@ -17,6 +17,7 @@ enum CorridorAnomalyType {
   kCorridorAnomalyModifiedFloor,
   kCorridorAnomalyTwoDoors,
   kCorridorAnomalyScaryPoster,
+  kCorridorAnomalyDoorKnocking,
   kCorridorAnomalyCount
 };
 
@@ -101,6 +102,7 @@ const char *CorridorAnomalyTypeName(CorridorAnomalyType anomaly_type);
 int GetPosterTextureIndex(int corridor_id, int poster_slot);
 CorridorState MakeCorridorState(int id);
 void RefreshCandidateCorridorStates();
+void ForceNextCorridorAnomaly(CorridorAnomalyType anomaly_type);
 void InitializeCorridorLifecycle();
 void ActivateNewLogicalCorridor(int physical_side);
 CanonicalCorridorLayout GetCanonicalCorridorLayout();
