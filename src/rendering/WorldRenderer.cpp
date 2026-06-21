@@ -26,9 +26,9 @@ std::vector<PointLight> CreateCorridorLights() {
     PointLight light;
     light.position = position;
     light.color = glm::vec3(1.0f, 0.98f, 0.92f);
-    light.ambient_strength = 0.03f;
-    light.diffuse_strength = 1.0f;
-    light.specular_strength = 1.0f;
+    light.ambient_strength = 0.01f;
+    light.diffuse_strength = 0.33f;
+    light.specular_strength = 0.33f;
     light.constant = 1.0f;
     light.linear = 0.14f;
     light.quadratic = 0.07f;
@@ -44,25 +44,26 @@ std::vector<PointLight> CreateCorridorLights() {
         glm::vec3(world_position.x, world_position.y, world_position.z));
   };
 
+  auto add_luminaire_lights = [&](const glm::mat4 &block_transform, const glm::vec3 &center, const glm::vec3 &local_spread_dir) {
+      // Distribui 3 point lights para simular o formato de "tubo" da luminária
+      const float spread_dist = 0.65f;
+      corridor_lights.push_back(make_block_light(block_transform, center - local_spread_dir * spread_dist));
+      corridor_lights.push_back(make_block_light(block_transform, center));
+      corridor_lights.push_back(make_block_light(block_transform, center + local_spread_dir * spread_dist));
+  };
+
   // Lambda to generate the lights for one complete modular block.
   auto add_block_lights = [&](const glm::mat4 &block_transform) {
     const float straight_spacing = kCorridorLength / 5.0f;
     for (int i = 0; i < 4; ++i) {
-      corridor_lights.push_back(make_block_light(
-          block_transform, glm::vec3(0.0f, kCorridorHeight - 0.15f,
-                                     -(i + 1) * straight_spacing)));
+      add_luminaire_lights(block_transform, glm::vec3(0.0f, kCorridorHeight - 0.15f, -(i + 1) * straight_spacing), glm::vec3(1.0f, 0.0f, 0.0f));
     }
 
-    corridor_lights.push_back(make_block_light(
-        block_transform, glm::vec3(0.0f, kCorridorHeight - 0.15f,
-                                   turn_z0 - 0.5f * kCornerLength)));
-    corridor_lights.push_back(make_block_light(
-        block_transform,
-        glm::vec3(connector_start_x - 0.5f * connector_length,
-                  kCorridorHeight - 0.15f, connector_center_z)));
-    corridor_lights.push_back(make_block_light(
-        block_transform, glm::vec3(exit_turn_x, kCorridorHeight - 0.15f,
-                                   turn_z0 - 0.5f * kCornerLength)));
+    add_luminaire_lights(block_transform, glm::vec3(0.0f, kCorridorHeight - 0.15f, turn_z0 - 0.5f * kCornerLength), glm::vec3(1.0f, 0.0f, 0.0f));
+    
+    add_luminaire_lights(block_transform, glm::vec3(connector_start_x - 0.5f * connector_length, kCorridorHeight - 0.15f, connector_center_z), glm::vec3(0.0f, 0.0f, 1.0f));
+    
+    add_luminaire_lights(block_transform, glm::vec3(exit_turn_x, kCorridorHeight - 0.15f, turn_z0 - 0.5f * kCornerLength), glm::vec3(1.0f, 0.0f, 0.0f));
   };
 
   // Apply lights to the three physical treadmill tiles.

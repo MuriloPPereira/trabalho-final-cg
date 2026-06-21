@@ -10,7 +10,7 @@ inline constexpr bool kCorridorDebugLogsEnabled = (ENABLE_CORRIDOR_DEBUG_LOGS !=
 inline constexpr int kPosterCount = 4;
 inline constexpr int kScaryPosterSlot = 2;
 inline constexpr int kScaryPosterTextureIndex = kPosterCount;
-inline constexpr int kMaxLights = 30;
+inline constexpr int kMaxLights = 80;
 inline constexpr int kMaxSalarymanBones = 100;
 inline constexpr float kThirdPersonShiftSprintMultiplier = 2.0f;
 inline constexpr float kCamouflagedPursuerSprintSpeedRatio = 0.70f;
