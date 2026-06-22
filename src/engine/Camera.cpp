@@ -454,6 +454,23 @@ void KeyCallback(GLFWwindow *window, int key, int scancode, int action,
     printf("Next corridor forced to: Door Knocking\n");
     fflush(stdout);
   }
+
+  // Atalho para tela cheia (F11)
+  static int windowed_xpos, windowed_ypos, windowed_width, windowed_height;
+  if (key == GLFW_KEY_F11 && action == GLFW_PRESS) {
+    GLFWmonitor* monitor = glfwGetWindowMonitor(window);
+    if (monitor) {
+      // Atualmente em tela cheia, voltar para o modo janela
+      glfwSetWindowMonitor(window, NULL, windowed_xpos, windowed_ypos, windowed_width, windowed_height, GLFW_DONT_CARE);
+    } else {
+      // Atualmente em modo janela, salvar dimensões e ir para tela cheia
+      glfwGetWindowPos(window, &windowed_xpos, &windowed_ypos);
+      glfwGetWindowSize(window, &windowed_width, &windowed_height);
+      GLFWmonitor* primary = glfwGetPrimaryMonitor();
+      const GLFWvidmode* mode = glfwGetVideoMode(primary);
+      glfwSetWindowMonitor(window, primary, 0, 0, mode->width, mode->height, mode->refreshRate);
+    }
+  }
 }
 
 // Definimos o callback para impressão de erros da GLFW no terminal
