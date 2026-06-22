@@ -104,6 +104,7 @@ CorridorState MakeCorridorState(int id);
 void RefreshCandidateCorridorStates();
 void ForceNextCorridorAnomaly(CorridorAnomalyType anomaly_type);
 void InitializeCorridorLifecycle();
+void PrepareCorridorTransition(int physical_side);
 void ActivateNewLogicalCorridor(int physical_side);
 CanonicalCorridorLayout GetCanonicalCorridorLayout();
 glm::vec3 TransformPoint(const glm::mat4 &transform, const glm::vec3 &point);

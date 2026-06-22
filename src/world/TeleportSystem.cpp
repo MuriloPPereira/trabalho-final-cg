@@ -40,6 +40,7 @@ void UpdateTeleportSystem(const CollisionResult &col, glm::vec4 &camera_position
       g_ConnectorMidpointCrossed = false;
       const int transition_direction = (block_index < 0) ? -1 : +1;
       log_connector_enter(transition_direction);
+      PrepareCorridorTransition(transition_direction);
     }
 
     const int transition_direction = (g_PreparedTransitionDirection == 0)

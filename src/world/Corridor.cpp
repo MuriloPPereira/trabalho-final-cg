@@ -268,6 +268,39 @@ void InitializeCorridorLifecycle() {
   RefreshCandidateCorridorStates();
 }
 
+static bool IsCorridorDecisionCorrect(int physical_side) {
+  const float player_moved_z = -static_cast<float>(physical_side);
+  const bool went_forward =
+      (player_moved_z ==
+       g_CurrentCorridorInstance.content.frame.contentForward.z);
+  const bool had_anomaly = g_CurrentCorridorInstance.state.has_anomaly;
+  return (went_forward && !had_anomaly) || (!went_forward && had_anomaly);
+}
+
+void PrepareCorridorTransition(int physical_side) {
+  if (physical_side == 0 || g_GameWon)
+    return;
+
+  CorridorInstance &next_corridor =
+      (physical_side < 0) ? g_NegativeCandidateCorridorInstance
+                          : g_PositiveCandidateCorridorInstance;
+
+  if (g_CurrentCorridorInstance.state.is_tutorial) {
+    next_corridor.state.is_tutorial = false;
+    next_corridor.state.entrance_progress = g_CurrentExitLevel;
+  } else if (IsCorridorDecisionCorrect(physical_side)) {
+    next_corridor.state.is_tutorial = false;
+    next_corridor.state.entrance_progress =
+        std::min(g_CurrentExitLevel + 1, 8);
+  } else {
+    // A wrong choice enters the same unnumbered reference corridor used by
+    // InitializeCorridorLifecycle(). Hide the candidate sign immediately;
+    // the full reset still happens when the transition is committed.
+    next_corridor.state.is_tutorial = true;
+    next_corridor.state.entrance_progress = -1;
+  }
+}
+
 void ActivateNewLogicalCorridor(int physical_side) {
   if (physical_side == 0 || g_GameWon)
     return;
@@ -276,16 +309,9 @@ void ActivateNewLogicalCorridor(int physical_side) {
   if (g_CurrentCorridorInstance.state.is_tutorial) {
     printf("\n--- REFERENCE CORRIDOR COMPLETE -> EXIT LEVEL: 0 ---\n\n");
   } else {
-    const float player_moved_z = -static_cast<float>(physical_side);
-
     // Continuing forward is correct only in a normal corridor; turning back
     // is correct only when the current corridor contains an anomaly.
-    const bool went_forward =
-        (player_moved_z ==
-         g_CurrentCorridorInstance.content.frame.contentForward.z);
-    const bool had_anomaly = g_CurrentCorridorInstance.state.has_anomaly;
-    const bool is_correct =
-        (went_forward && !had_anomaly) || (!went_forward && had_anomaly);
+    const bool is_correct = IsCorridorDecisionCorrect(physical_side);
     if (is_correct) {
       g_CurrentExitLevel = std::min(g_CurrentExitLevel + 1, 8);
       if (g_CurrentExitLevel == 8) {
