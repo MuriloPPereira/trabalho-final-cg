@@ -5,7 +5,7 @@
 layout (location = 0) in vec4 model_coefficients;
 layout (location = 1) in vec4 normal_coefficients;
 layout (location = 2) in vec2 texture_coefficients;
-layout (location = 3) in ivec4 bone_ids;
+layout (location = 3) in vec4 bone_ids_float;
 layout (location = 4) in vec4 bone_weights;
 
 #define MAX_BONES 100
@@ -30,6 +30,7 @@ void main()
 {
     vec4 local_position = model_coefficients;
     vec4 local_normal = normal_coefficients;
+    ivec4 bone_ids = ivec4(bone_ids_float);
 
     if (use_skinning)
     {

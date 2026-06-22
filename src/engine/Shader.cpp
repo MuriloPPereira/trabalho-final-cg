@@ -62,8 +62,10 @@ void LoadShadersFromFiles() {
       g_GpuProgramID,
       "projection"); // Variável da matriz "projection" em shader_vertex.glsl
   g_use_skinning_uniform = glGetUniformLocation(g_GpuProgramID, "use_skinning");
-  g_bone_matrices_uniform =
-      glGetUniformLocation(g_GpuProgramID, "bone_matrices[0]");
+  g_bone_matrices_uniform = glGetUniformLocation(g_GpuProgramID, "bone_matrices");
+  if (g_bone_matrices_uniform < 0) {
+    g_bone_matrices_uniform = glGetUniformLocation(g_GpuProgramID, "bone_matrices[0]");
+  }
   g_bbox_min_uniform = glGetUniformLocation(g_GpuProgramID, "bbox_min");
   g_bbox_max_uniform = glGetUniformLocation(g_GpuProgramID, "bbox_max");
   g_camera_position_uniform =

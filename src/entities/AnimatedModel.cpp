@@ -912,6 +912,7 @@ bool LoadTexturedAnimatedModel(SalarymanAnimatedModel &model,
   printf("Loading animated %s FBX \"%s\"...\n", debug_label, path.c_str());
 
   Assimp::Importer importer;
+  importer.SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, false);
   const unsigned int flags =
       aiProcess_Triangulate | aiProcess_GenSmoothNormals |
       aiProcess_LimitBoneWeights | aiProcess_ImproveCacheLocality |
@@ -1119,8 +1120,8 @@ bool LoadTexturedAnimatedModel(SalarymanAnimatedModel &model,
                           sizeof(SalarymanAnimatedVertex),
                           (void *)offsetof(SalarymanAnimatedVertex, u));
     glEnableVertexAttribArray(2);
-    glVertexAttribIPointer(3, 4, GL_INT, sizeof(SalarymanAnimatedVertex),
-                           (void *)offsetof(SalarymanAnimatedVertex, bone_ids));
+    glVertexAttribPointer(3, 4, GL_INT, GL_FALSE, sizeof(SalarymanAnimatedVertex),
+                          (void *)offsetof(SalarymanAnimatedVertex, bone_ids));
     glEnableVertexAttribArray(3);
     glVertexAttribPointer(
         4, 4, GL_FLOAT, GL_FALSE, sizeof(SalarymanAnimatedVertex),
