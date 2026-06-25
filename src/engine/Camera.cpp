@@ -60,18 +60,17 @@ glm::vec2 WrapCameraPointToLocal(const glm::vec2 &world_point,
   return p;
 }
 
-bool IsCameraPointInsideStaticWalkable(
-    const glm::vec2 &world_point, float radius,
-    const CanonicalCorridorLayout &layout) {
+bool IsCameraPointInsideStaticWalkable(const glm::vec2 &world_point,
+                                       float radius,
+                                       const CanonicalCorridorLayout &layout) {
   int block_index = 0;
   const glm::vec2 local_point =
       WrapCameraPointToLocal(world_point, layout, radius, block_index);
   (void)block_index;
 
   const std::array<WalkableBox2D, kCorridorWalkableSectionCount>
-      walkable_boxes =
-          GetCorridorWalkableSections(layout, kCorridorHalfWidth, kCorridorZ1,
-                                      radius);
+      walkable_boxes = GetCorridorWalkableSections(layout, kCorridorHalfWidth,
+                                                   kCorridorZ1, radius);
   for (const WalkableBox2D &box : walkable_boxes) {
     if (IsInsideWalkableBox(box, local_point))
       return true;
@@ -79,22 +78,20 @@ bool IsCameraPointInsideStaticWalkable(
   return false;
 }
 
-glm::vec2 ClampCameraPointToStaticWalkable(
-    const glm::vec2 &world_point, float radius,
-    const CanonicalCorridorLayout &layout) {
+glm::vec2
+ClampCameraPointToStaticWalkable(const glm::vec2 &world_point, float radius,
+                                 const CanonicalCorridorLayout &layout) {
   int block_index = 0;
   const glm::vec2 local_point =
       WrapCameraPointToLocal(world_point, layout, radius, block_index);
   const std::array<WalkableBox2D, kCorridorWalkableSectionCount>
-      walkable_boxes =
-          GetCorridorWalkableSections(layout, kCorridorHalfWidth, kCorridorZ1,
-                                      radius);
+      walkable_boxes = GetCorridorWalkableSections(layout, kCorridorHalfWidth,
+                                                   kCorridorZ1, radius);
 
-  glm::vec2 best(
-      ClampFloat(local_point.x, walkable_boxes[0].min_x,
-                 walkable_boxes[0].max_x),
-      ClampFloat(local_point.y, walkable_boxes[0].min_z,
-                 walkable_boxes[0].max_z));
+  glm::vec2 best(ClampFloat(local_point.x, walkable_boxes[0].min_x,
+                            walkable_boxes[0].max_x),
+                 ClampFloat(local_point.y, walkable_boxes[0].min_z,
+                            walkable_boxes[0].max_z));
   float best_dist2 = glm::dot(best - local_point, best - local_point);
 
   for (const WalkableBox2D &box : walkable_boxes) {
@@ -121,9 +118,8 @@ float FindVisibleThirdPersonBoomFraction(
 
   float last_clear_t = 0.0f;
   for (int step = 1; step <= kThirdPersonCameraSweepSteps; ++step) {
-    const float t =
-        static_cast<float>(step) /
-        static_cast<float>(kThirdPersonCameraSweepSteps);
+    const float t = static_cast<float>(step) /
+                    static_cast<float>(kThirdPersonCameraSweepSteps);
     const glm::vec2 p = target_ground + boom * t;
     if (IsCameraPointInsideStaticWalkable(p, radius, layout)) {
       last_clear_t = t;
@@ -210,8 +206,7 @@ void UpdateThirdPersonCameraFromPlayer() {
   const glm::vec2 target_ground(target.x, target.z);
   const glm::vec2 desired_ground(desired_camera.x, desired_camera.z);
   const float boom_fraction = FindVisibleThirdPersonBoomFraction(
-      target_ground, desired_ground, kThirdPersonCameraRadius,
-      corridor_layout);
+      target_ground, desired_ground, kThirdPersonCameraRadius, corridor_layout);
 
   glm::vec3 camera_position =
       target + (desired_camera - target) * boom_fraction;
@@ -219,8 +214,8 @@ void UpdateThirdPersonCameraFromPlayer() {
       std::max(0.65f, std::min(kCorridorHeight - 0.20f, camera_position.y));
 
   const glm::vec2 clamped_ground = ClampCameraPointToStaticWalkable(
-      glm::vec2(camera_position.x, camera_position.z),
-      kThirdPersonCameraRadius, corridor_layout);
+      glm::vec2(camera_position.x, camera_position.z), kThirdPersonCameraRadius,
+      corridor_layout);
   camera_position.x = clamped_ground.x;
   camera_position.z = clamped_ground.y;
 
@@ -252,7 +247,8 @@ void UpdateCameraFromInput(GLFWwindow *window, float delta_time) {
     else
       cam_front = glm::normalize(cam_front);
 
-    glm::vec3 cam_right = glm::normalize(glm::cross(cam_front, glm::vec3(0.0f, 1.0f, 0.0f)));
+    glm::vec3 cam_right =
+        glm::normalize(glm::cross(cam_front, glm::vec3(0.0f, 1.0f, 0.0f)));
 
     glm::vec3 movement(0.0f, 0.0f, 0.0f);
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
@@ -268,13 +264,13 @@ void UpdateCameraFromInput(GLFWwindow *window, float delta_time) {
     const glm::vec3 previous_player_position = g_PlayerCharacter.position;
     if (input_requests_movement) {
       movement = glm::normalize(movement);
-      const float movement_speed =
-          sprint_active ? GetPlayerThirdPersonShiftSprintSpeed()
-                        : g_PlayerCharacter.speed;
+      const float movement_speed = sprint_active
+                                       ? GetPlayerThirdPersonShiftSprintSpeed()
+                                       : g_PlayerCharacter.speed;
       g_PlayerCharacter.position += movement * movement_speed * delta_time;
     }
 
-    const float player_radius = 0.15f;
+    const float player_radius = 0.4f;
     const CanonicalCorridorLayout corridor_layout =
         GetCanonicalCorridorLayout();
     CollisionResult col = UpdatePlayerCollision(
@@ -294,7 +290,8 @@ void UpdateCameraFromInput(GLFWwindow *window, float delta_time) {
     g_PlayerCharacter.moving = (glm::length(actual_movement) > 0.0005f);
     if (g_PlayerCharacter.moving) {
       actual_movement = glm::normalize(actual_movement);
-      // O personagem agora sempre rotaciona para olhar para a direção do movimento real
+      // O personagem agora sempre rotaciona para olhar para a direção do
+      // movimento real
       g_PlayerCharacter.forward = actual_movement;
       g_PlayerCharacter.yaw = std::atan2(actual_movement.x, -actual_movement.z);
     }
@@ -304,9 +301,9 @@ void UpdateCameraFromInput(GLFWwindow *window, float delta_time) {
     return;
   }
 
-  const float movement_speed =
-      sprint_active ? GetPlayerThirdPersonShiftSprintSpeed()
-                    : g_PlayerCharacter.speed;
+  const float movement_speed = sprint_active
+                                   ? GetPlayerThirdPersonShiftSprintSpeed()
+                                   : g_PlayerCharacter.speed;
 
   glm::vec4 camera_front_4 = ComputeCameraFrontVector();
   glm::vec3 camera_front(camera_front_4.x, 0.0f, camera_front_4.z);
@@ -315,8 +312,8 @@ void UpdateCameraFromInput(GLFWwindow *window, float delta_time) {
   else
     camera_front = glm::normalize(camera_front);
 
-  const glm::vec3 camera_right = glm::normalize(
-      glm::cross(camera_front, glm::vec3(0.0f, 1.0f, 0.0f)));
+  const glm::vec3 camera_right =
+      glm::normalize(glm::cross(camera_front, glm::vec3(0.0f, 1.0f, 0.0f)));
   glm::vec3 movement(0.0f);
   if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
     movement += camera_front;
@@ -606,17 +603,19 @@ void KeyCallback(GLFWwindow *window, int key, int scancode, int action,
   // Atalho para tela cheia (F11)
   static int windowed_xpos, windowed_ypos, windowed_width, windowed_height;
   if (key == GLFW_KEY_F11 && action == GLFW_PRESS) {
-    GLFWmonitor* monitor = glfwGetWindowMonitor(window);
+    GLFWmonitor *monitor = glfwGetWindowMonitor(window);
     if (monitor) {
       // Atualmente em tela cheia, voltar para o modo janela
-      glfwSetWindowMonitor(window, NULL, windowed_xpos, windowed_ypos, windowed_width, windowed_height, GLFW_DONT_CARE);
+      glfwSetWindowMonitor(window, NULL, windowed_xpos, windowed_ypos,
+                           windowed_width, windowed_height, GLFW_DONT_CARE);
     } else {
       // Atualmente em modo janela, salvar dimensões e ir para tela cheia
       glfwGetWindowPos(window, &windowed_xpos, &windowed_ypos);
       glfwGetWindowSize(window, &windowed_width, &windowed_height);
-      GLFWmonitor* primary = glfwGetPrimaryMonitor();
-      const GLFWvidmode* mode = glfwGetVideoMode(primary);
-      glfwSetWindowMonitor(window, primary, 0, 0, mode->width, mode->height, mode->refreshRate);
+      GLFWmonitor *primary = glfwGetPrimaryMonitor();
+      const GLFWvidmode *mode = glfwGetVideoMode(primary);
+      glfwSetWindowMonitor(window, primary, 0, 0, mode->width, mode->height,
+                           mode->refreshRate);
     }
   }
 }
