@@ -243,6 +243,13 @@ int Application::Run(int argc, char *argv[]) {
 
   printf("GPU: %s, %s, OpenGL %s, GLSL %s\n", vendor, renderer, glversion,
          glslversion);
+  GLint max_fragment_texture_units = 0;
+  GLint max_combined_texture_units = 0;
+  glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &max_fragment_texture_units);
+  glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS,
+                &max_combined_texture_units);
+  printf("OpenGL texture units: fragment=%d, combined=%d\n",
+         max_fragment_texture_units, max_combined_texture_units);
 
   // Carregamos os shaders de vértices e de fragmentos que serão utilizados
   // para renderização. Veja slides 180-200 do documento

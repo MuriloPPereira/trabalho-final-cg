@@ -26,6 +26,7 @@ struct PlayerCharacter {
 extern SalarymanAnimatedModel g_PlayerAnimatedModel;
 extern SalarymanAnimator g_PlayerAnimator;
 extern PlayerCharacter g_PlayerCharacter;
+extern bool g_PlayerCharacterHiddenByCamera;
 
 bool LoadPlayerCharacterModel();
 void InitializePlayerCharacterFromCamera(const glm::vec4 &camera_position,

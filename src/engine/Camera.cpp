@@ -18,6 +18,137 @@
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 
+namespace {
+constexpr float kThirdPersonBoomDistance = 4.5f;
+constexpr float kThirdPersonCameraRadius = 0.14f;
+constexpr float kThirdPersonCameraBackoff = 0.04f;
+constexpr float kThirdPersonPlayerHideDistance = 1.05f;
+constexpr int kThirdPersonCameraSweepSteps = 48;
+
+float ClampFloat(float value, float min_value, float max_value) {
+  return std::max(min_value, std::min(max_value, value));
+}
+
+bool IsInsideWalkableBox(const WalkableBox2D &box, const glm::vec2 &p) {
+  return p.x >= box.min_x && p.x <= box.max_x && p.y >= box.min_z &&
+         p.y <= box.max_z;
+}
+
+glm::vec2 WrapCameraPointToLocal(const glm::vec2 &world_point,
+                                 const CanonicalCorridorLayout &layout,
+                                 float radius, int &block_index) {
+  glm::vec2 p = world_point;
+  block_index = 0;
+
+  const float first_z_max = 0.8f;
+  const float block_length = glm::length(layout.block_offset);
+  const glm::vec2 block_dir = layout.block_offset / block_length;
+  const float wrap_forward_progress =
+      glm::dot(layout.block_offset + glm::vec2(0.0f, radius), block_dir);
+  const float wrap_backward_progress =
+      glm::dot(glm::vec2(0.0f, first_z_max), block_dir);
+
+  while (glm::dot(p, block_dir) > wrap_forward_progress) {
+    p -= layout.block_offset;
+    ++block_index;
+  }
+  while (glm::dot(p, block_dir) < wrap_backward_progress) {
+    p += layout.block_offset;
+    --block_index;
+  }
+
+  return p;
+}
+
+bool IsCameraPointInsideStaticWalkable(
+    const glm::vec2 &world_point, float radius,
+    const CanonicalCorridorLayout &layout) {
+  int block_index = 0;
+  const glm::vec2 local_point =
+      WrapCameraPointToLocal(world_point, layout, radius, block_index);
+  (void)block_index;
+
+  const std::array<WalkableBox2D, kCorridorWalkableSectionCount>
+      walkable_boxes =
+          GetCorridorWalkableSections(layout, kCorridorHalfWidth, kCorridorZ1,
+                                      radius);
+  for (const WalkableBox2D &box : walkable_boxes) {
+    if (IsInsideWalkableBox(box, local_point))
+      return true;
+  }
+  return false;
+}
+
+glm::vec2 ClampCameraPointToStaticWalkable(
+    const glm::vec2 &world_point, float radius,
+    const CanonicalCorridorLayout &layout) {
+  int block_index = 0;
+  const glm::vec2 local_point =
+      WrapCameraPointToLocal(world_point, layout, radius, block_index);
+  const std::array<WalkableBox2D, kCorridorWalkableSectionCount>
+      walkable_boxes =
+          GetCorridorWalkableSections(layout, kCorridorHalfWidth, kCorridorZ1,
+                                      radius);
+
+  glm::vec2 best(
+      ClampFloat(local_point.x, walkable_boxes[0].min_x,
+                 walkable_boxes[0].max_x),
+      ClampFloat(local_point.y, walkable_boxes[0].min_z,
+                 walkable_boxes[0].max_z));
+  float best_dist2 = glm::dot(best - local_point, best - local_point);
+
+  for (const WalkableBox2D &box : walkable_boxes) {
+    const glm::vec2 candidate(ClampFloat(local_point.x, box.min_x, box.max_x),
+                              ClampFloat(local_point.y, box.min_z, box.max_z));
+    const float dist2 =
+        glm::dot(candidate - local_point, candidate - local_point);
+    if (dist2 < best_dist2) {
+      best = candidate;
+      best_dist2 = dist2;
+    }
+  }
+
+  return best + static_cast<float>(block_index) * layout.block_offset;
+}
+
+float FindVisibleThirdPersonBoomFraction(
+    const glm::vec2 &target_ground, const glm::vec2 &desired_ground,
+    float radius, const CanonicalCorridorLayout &layout) {
+  const glm::vec2 boom = desired_ground - target_ground;
+  const float boom_length = glm::length(boom);
+  if (boom_length < 0.0001f)
+    return 0.0f;
+
+  float last_clear_t = 0.0f;
+  for (int step = 1; step <= kThirdPersonCameraSweepSteps; ++step) {
+    const float t =
+        static_cast<float>(step) /
+        static_cast<float>(kThirdPersonCameraSweepSteps);
+    const glm::vec2 p = target_ground + boom * t;
+    if (IsCameraPointInsideStaticWalkable(p, radius, layout)) {
+      last_clear_t = t;
+      continue;
+    }
+
+    float low = last_clear_t;
+    float high = t;
+    for (int i = 0; i < 12; ++i) {
+      const float mid = 0.5f * (low + high);
+      const glm::vec2 mid_point = target_ground + boom * mid;
+      if (IsCameraPointInsideStaticWalkable(mid_point, radius, layout))
+        low = mid;
+      else
+        high = mid;
+    }
+
+    const float backoff_t = kThirdPersonCameraBackoff / boom_length;
+    return std::max(0.0f, low - backoff_t);
+  }
+
+  return 1.0f;
+}
+} // namespace
+
 float g_ScreenRatio = 1.0f;
 float g_AngleX = 0.0f;
 float g_AngleY = 0.0f;
@@ -71,17 +202,34 @@ void UpdateThirdPersonCameraFromPlayer() {
 
   const glm::vec3 target =
       g_PlayerCharacter.position + glm::vec3(0.0f, 1.35f, 0.0f);
-  glm::vec3 desired_camera = target - camera_front * 4.5f;
+  glm::vec3 desired_camera = target - camera_front * kThirdPersonBoomDistance;
   desired_camera.y =
       std::max(0.65f, std::min(kCorridorHeight - 0.20f, desired_camera.y));
 
   const CanonicalCorridorLayout corridor_layout = GetCanonicalCorridorLayout();
-  CollisionResult col = UpdatePlayerCollision(
-      glm::vec2(desired_camera.x, desired_camera.z), 0.10f, corridor_layout,
-      kCorridorHalfWidth, kCorridorZ1);
+  const glm::vec2 target_ground(target.x, target.z);
+  const glm::vec2 desired_ground(desired_camera.x, desired_camera.z);
+  const float boom_fraction = FindVisibleThirdPersonBoomFraction(
+      target_ground, desired_ground, kThirdPersonCameraRadius,
+      corridor_layout);
+
+  glm::vec3 camera_position =
+      target + (desired_camera - target) * boom_fraction;
+  camera_position.y =
+      std::max(0.65f, std::min(kCorridorHeight - 0.20f, camera_position.y));
+
+  const glm::vec2 clamped_ground = ClampCameraPointToStaticWalkable(
+      glm::vec2(camera_position.x, camera_position.z),
+      kThirdPersonCameraRadius, corridor_layout);
+  camera_position.x = clamped_ground.x;
+  camera_position.z = clamped_ground.y;
+
+  const float actual_boom_distance = glm::length(camera_position - target);
+  g_PlayerCharacterHiddenByCamera =
+      actual_boom_distance < kThirdPersonPlayerHideDistance;
 
   g_CameraPosition =
-      glm::vec4(col.p_world.x, desired_camera.y, col.p_world.y, 1.0f);
+      glm::vec4(camera_position.x, camera_position.y, camera_position.z, 1.0f);
 }
 
 void UpdateCameraFromInput(GLFWwindow *window, float delta_time) {

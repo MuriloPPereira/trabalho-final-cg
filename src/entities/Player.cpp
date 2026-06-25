@@ -12,6 +12,7 @@
 SalarymanAnimatedModel g_PlayerAnimatedModel;
 SalarymanAnimator g_PlayerAnimator;
 PlayerCharacter g_PlayerCharacter;
+bool g_PlayerCharacterHiddenByCamera = false;
 
 namespace {
 constexpr float kPlayerWorldSpeedMultiplier = 5.50f;
@@ -71,6 +72,7 @@ void InitializePlayerCharacterFromCamera(const glm::vec4 &camera_position,
   g_PlayerCharacter.position =
       glm::vec3(camera_position.x, 0.0f, camera_position.z);
   g_PlayerCharacter.yaw = camera_yaw;
+  g_PlayerCharacterHiddenByCamera = false;
 
   glm::vec3 forward(std::sin(camera_yaw), 0.0f, -std::cos(camera_yaw));
   if (glm::length(forward) < 0.0001f)
@@ -101,7 +103,7 @@ void UpdatePlayerCharacterAnimation(PlayerCharacter &player,
 
 void DrawPlayerCharacter(const PlayerCharacter &player,
                          const Material &material) {
-  if (!player.loaded)
+  if (!player.loaded || g_PlayerCharacterHiddenByCamera)
     return;
 
   glm::vec3 forward = player.forward;

@@ -5,9 +5,25 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <vector>
 #include <stb_image.h>
 
 GLuint g_NumLoadedTextures = 0;
+
+namespace {
+struct LoadedTexture {
+  GLuint texture_id;
+  GLuint sampler_id;
+};
+
+std::vector<LoadedTexture> g_LoadedTextures;
+} // namespace
+
+GLuint RegisterLoadedTexture(GLuint texture_id, GLuint sampler_id) {
+  g_LoadedTextures.push_back(LoadedTexture{texture_id, sampler_id});
+  g_NumLoadedTextures = static_cast<GLuint>(g_LoadedTextures.size());
+  return g_NumLoadedTextures - 1;
+}
 
 // Função que carrega uma imagem para ser utilizada como textura
 void LoadTextureImage(const char *filename, GLint wrap_s, GLint wrap_t) {
@@ -52,19 +68,20 @@ void LoadTextureImage(const char *filename, GLint wrap_s, GLint wrap_t) {
   glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
   glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
 
-  GLuint textureunit = g_NumLoadedTextures;
-  glActiveTexture(GL_TEXTURE0 + textureunit);
+  const GLuint upload_texture_unit = 0;
+  glActiveTexture(GL_TEXTURE0 + upload_texture_unit);
   glBindTexture(GL_TEXTURE_2D, texture_id);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap_s);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrap_t);
   glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8, width, height, 0, GL_RGB,
                GL_UNSIGNED_BYTE, data);
   glGenerateMipmap(GL_TEXTURE_2D);
-  glBindSampler(textureunit, sampler_id);
+  glBindSampler(upload_texture_unit, 0);
+  glBindTexture(GL_TEXTURE_2D, 0);
 
   stbi_image_free(data);
 
-  g_NumLoadedTextures += 1;
+  RegisterLoadedTexture(texture_id, sampler_id);
 }
 
 void CreateSolidColorTexture(unsigned char r, unsigned char g,
@@ -80,16 +97,32 @@ void CreateSolidColorTexture(unsigned char r, unsigned char g,
   glSamplerParameteri(sampler_id, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
   const unsigned char pixel[3] = {r, g, b};
-  const GLuint textureunit = g_NumLoadedTextures;
-  glActiveTexture(GL_TEXTURE0 + textureunit);
+  const GLuint upload_texture_unit = 0;
+  glActiveTexture(GL_TEXTURE0 + upload_texture_unit);
   glBindTexture(GL_TEXTURE_2D, texture_id);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
   glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8, 1, 1, 0, GL_RGB, GL_UNSIGNED_BYTE,
                pixel);
-  glBindSampler(textureunit, sampler_id);
-  // Materials store texture units, so the generated texture must remain bound
-  // to the unit that will be sampled later by the shader.
+  glBindSampler(upload_texture_unit, 0);
+  glBindTexture(GL_TEXTURE_2D, 0);
 
-  g_NumLoadedTextures += 1;
+  RegisterLoadedTexture(texture_id, sampler_id);
+}
+
+void BindLoadedTexture(GLuint texture_index, GLuint texture_unit) {
+  if (texture_index >= g_LoadedTextures.size()) {
+    fprintf(stderr,
+            "ERROR: Texture index %u is not loaded; binding texture 0.\n",
+            texture_index);
+    glActiveTexture(GL_TEXTURE0 + texture_unit);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glBindSampler(texture_unit, 0);
+    return;
+  }
+
+  const LoadedTexture &texture = g_LoadedTextures[texture_index];
+  glActiveTexture(GL_TEXTURE0 + texture_unit);
+  glBindTexture(GL_TEXTURE_2D, texture.texture_id);
+  glBindSampler(texture_unit, texture.sampler_id);
 }

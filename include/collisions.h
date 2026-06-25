@@ -5,7 +5,7 @@
 #include <array>
 #include <glm/vec2.hpp>
 
-constexpr int kCorridorWalkableSectionCount = 4;
+constexpr int kCorridorWalkableSectionCount = 5;
 
 struct CanonicalCorridorLayout
 {

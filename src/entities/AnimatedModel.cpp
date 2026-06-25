@@ -270,21 +270,21 @@ bool LoadAnimatedDiffuseTexture(const char *debug_label, const char *filename,
                       GL_LINEAR_MIPMAP_LINEAR);
   glSamplerParameteri(sampler_id, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-  texture_unit = g_NumLoadedTextures;
-  glActiveTexture(GL_TEXTURE0 + texture_unit);
+  const GLuint upload_texture_unit = 0;
+  glActiveTexture(GL_TEXTURE0 + upload_texture_unit);
   glBindTexture(GL_TEXTURE_2D, texture_id);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
   glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8, width, height, 0, GL_RGB,
                GL_UNSIGNED_BYTE, data);
   glGenerateMipmap(GL_TEXTURE_2D);
-  glBindSampler(texture_unit, sampler_id);
+  glBindSampler(upload_texture_unit, 0);
   glBindTexture(GL_TEXTURE_2D, 0);
 
   stbi_image_free(data);
-  g_NumLoadedTextures += 1;
+  texture_unit = RegisterLoadedTexture(texture_id, sampler_id);
 
-  printf("OK (%dx%d, textureId=%u, unit=%u).\n", width, height, texture_id,
+  printf("OK (%dx%d, textureId=%u, textureIndex=%u).\n", width, height, texture_id,
          texture_unit);
   return true;
 }
@@ -960,8 +960,8 @@ bool LoadTexturedAnimatedModel(SalarymanAnimatedModel &model,
              debug_label);
     }
   }
-  printf("%s animated FBX: body diffuse textureId=%u unit=%u, hair "
-         "diffuse textureId=%u unit=%u\n",
+  printf("%s animated FBX: body diffuse textureId=%u textureIndex=%u, hair "
+         "diffuse textureId=%u textureIndex=%u\n",
          debug_label, body_diffuse_texture_id, body_diffuse_texture_unit,
          hair_diffuse_texture_id, hair_diffuse_texture_unit);
 
@@ -1136,7 +1136,7 @@ bool LoadTexturedAnimatedModel(SalarymanAnimatedModel &model,
 
     printf(
         "%s animated mesh texture: mesh=%s material=%s assigned=%s "
-        "textureId=%u unit=%u\n",
+        "textureId=%u textureIndex=%u\n",
         debug_label,
         animated_mesh.name.empty() ? "<unnamed>" : animated_mesh.name.c_str(),
         animated_mesh.materialName.empty() ? "<unnamed>"
@@ -1298,11 +1298,10 @@ void DrawAnimatedModel(const SalarymanAnimatedModel &model) {
   for (size_t i = 0; i < model.meshes.size(); ++i) {
     const SalarymanAnimatedMesh &mesh = model.meshes[i];
     glBindVertexArray(mesh.vertex_array_object_id);
-    if (mesh.diffuse_texture_id != 0) {
-      glActiveTexture(GL_TEXTURE0 + mesh.diffuse_texture_unit);
-      glBindTexture(GL_TEXTURE_2D, mesh.diffuse_texture_id);
-    }
-    glUniform1i(g_material_diffuse_uniform, mesh.diffuse_texture_unit);
+    constexpr GLuint kMaterialTextureUnit = 0;
+    if (mesh.diffuse_texture_id != 0)
+      BindLoadedTexture(mesh.diffuse_texture_unit, kMaterialTextureUnit);
+    glUniform1i(g_material_diffuse_uniform, kMaterialTextureUnit);
     glUniform4f(g_bbox_min_uniform, mesh.bbox_min.x, mesh.bbox_min.y,
                 mesh.bbox_min.z, 1.0f);
     glUniform4f(g_bbox_max_uniform, mesh.bbox_max.x, mesh.bbox_max.y,

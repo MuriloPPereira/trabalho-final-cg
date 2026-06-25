@@ -10,19 +10,33 @@ GetCorridorWalkableSections(const CanonicalCorridorLayout &layout,
     const float straight_x_limit = corridor_half_width - entity_radius;
     const float connector_half_width = corridor_half_width - entity_radius;
     const float joint_overlap = entity_radius * 2.0f;
+    const float entry_turn_closed_x_max = corridor_half_width - entity_radius;
+    const float entry_turn_closed_z_min = layout.turn_z1 + entity_radius;
+    const float exit_turn_closed_x_min =
+        layout.exit_turn_x - corridor_half_width + entity_radius;
+    const float exit_turn_closed_z_max = layout.turn_z0 - entity_radius;
+    const float exit_straight_overlap_min_x =
+        layout.exit_turn_x - straight_x_limit;
+    const float exit_straight_overlap_max_x =
+        layout.exit_turn_x + straight_x_limit;
+
     return {{{-straight_x_limit, straight_x_limit,
               corridor_z1 - joint_overlap, 0.8f},
-             {-corridor_half_width, corridor_half_width,
-              layout.turn_z1 + entity_radius,
-              layout.turn_z0 + joint_overlap},
+             {-corridor_half_width, entry_turn_closed_x_max,
+              entry_turn_closed_z_min,
+              layout.turn_z0},
              {layout.connector_end_x - joint_overlap,
               layout.connector_start_x + joint_overlap,
               layout.connector_center_z - connector_half_width,
               layout.connector_center_z + connector_half_width},
-             {layout.exit_turn_x - corridor_half_width,
+             {exit_turn_closed_x_min,
               layout.exit_turn_x + corridor_half_width,
+              layout.turn_z1,
+              exit_turn_closed_z_max},
+             {exit_straight_overlap_min_x,
+              exit_straight_overlap_max_x,
               layout.turn_z1 - joint_overlap,
-              layout.turn_z0 + joint_overlap}}};
+              layout.turn_z1}}};
 }
 
 CollisionResult UpdatePlayerCollision(glm::vec2 camera_pos, float player_radius, const CanonicalCorridorLayout& corridor_layout, float kCorridorHalfWidth, float kCorridorZ1) {
@@ -40,6 +54,7 @@ CollisionResult UpdatePlayerCollision(glm::vec2 camera_pos, float player_radius,
     const WalkableBox2D& corner_left_1 = walkable_boxes[1];
     const WalkableBox2D& connector_corridor = walkable_boxes[2];
     const WalkableBox2D& corner_right_1 = walkable_boxes[3];
+    const WalkableBox2D& exit_straight_overlap = walkable_boxes[4];
 
     auto clampf = [](float value, float min_value, float max_value) {
         return std::max(min_value, std::min(max_value, value));
@@ -144,7 +159,8 @@ CollisionResult UpdatePlayerCollision(glm::vec2 camera_pos, float player_radius,
     result.inside_straight_corridor = inside_box(corridor1, p.x, p.y);
     result.inside_shared_connector = inside_box(connector_corridor, p.x, p.y);
     result.inside_entry_turn = inside_box(corner_left_1, p.x, p.y);
-    result.inside_exit_turn = inside_box(corner_right_1, p.x, p.y);
+    result.inside_exit_turn = inside_box(corner_right_1, p.x, p.y) ||
+                              inside_box(exit_straight_overlap, p.x, p.y);
     
     result.inside_connector_turn = false;
     for (size_t i = 1; i < walkable_boxes.size(); ++i) {

@@ -6,6 +6,8 @@
 #include <glm/vec3.hpp>
 
 struct Material {
+  // Index into the loaded texture registry. Rendering binds it to a safe
+  // hardware unit before updating the sampler uniform.
   GLuint diffuse_texture_unit;
   float specular_strength;
   float shininess;

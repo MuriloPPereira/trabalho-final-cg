@@ -86,19 +86,18 @@ GLuint textVAO;
 GLuint textVBO;
 GLuint textprogram_id;
 GLuint texttexture_id;
+GLuint textsampler_id;
 
 void TextRendering_Init()
 {
-    GLuint sampler;
-
     glGenBuffers(1, &textVBO);
     glGenVertexArrays(1, &textVAO);
     glGenTextures(1, &texttexture_id);
-    glGenSamplers(1, &sampler);
-    glSamplerParameteri(sampler, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glSamplerParameteri(sampler, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glSamplerParameteri(sampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glSamplerParameteri(sampler, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glGenSamplers(1, &textsampler_id);
+    glSamplerParameteri(textsampler_id, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glSamplerParameteri(textsampler_id, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glSamplerParameteri(textsampler_id, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glSamplerParameteri(textsampler_id, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glCheckError();
 
     GLuint textvertexshader_id = glCreateShader(GL_VERTEX_SHADER);
@@ -116,11 +115,11 @@ void TextRendering_Init()
     texttex_uniform = glGetUniformLocation(textprogram_id, "tex");
     glCheckError();
 
-    GLuint textureunit = 31;
+    GLuint textureunit = 0;
     glActiveTexture(GL_TEXTURE0 + textureunit);
     glBindTexture(GL_TEXTURE_2D, texttexture_id);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, dejavufont.tex_width, dejavufont.tex_height, 0, GL_RED, GL_UNSIGNED_BYTE, dejavufont.tex_data);
-    glBindSampler(textureunit, sampler);
+    glBindSampler(textureunit, textsampler_id);
     glCheckError();
 
     glBindVertexArray(textVAO);
@@ -196,6 +195,9 @@ void TextRendering_PrintString(GLFWwindow* window, const std::string &str, float
         glBindBuffer(GL_ARRAY_BUFFER, 0);
 
         glUseProgram(textprogram_id);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, texttexture_id);
+        glBindSampler(0, textsampler_id);
         glBindVertexArray(textVAO);
 
         glDrawArrays(GL_TRIANGLES, 0, 6);

@@ -1,6 +1,7 @@
 #include "engine/Renderer.h"
 
 #include "engine/Shader.h"
+#include "engine/Texture.h"
 #include "matrices.h"
 #include "rendering/Mesh.h"
 
@@ -12,7 +13,9 @@
 std::stack<glm::mat4> g_MatrixStack;
 
 void ApplyMaterial(const Material &material) {
-  glUniform1i(g_material_diffuse_uniform, material.diffuse_texture_unit);
+  constexpr GLuint kMaterialTextureUnit = 0;
+  BindLoadedTexture(material.diffuse_texture_unit, kMaterialTextureUnit);
+  glUniform1i(g_material_diffuse_uniform, kMaterialTextureUnit);
   glUniform1f(g_material_specular_strength_uniform, material.specular_strength);
   glUniform1f(g_material_shininess_uniform, material.shininess);
   glUniform1f(g_material_ambient_strength_uniform, material.ambient_strength);
