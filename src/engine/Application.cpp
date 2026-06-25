@@ -199,7 +199,7 @@ int Application::Run(int argc, char *argv[]) {
   // Criamos uma janela do sistema operacional, com 800 colunas e 600 linhas
   // de pixels, e com título "INF01047 ...".
   GLFWwindow *window;
-  window = glfwCreateWindow(800, 600, "INF01047 - Seu Cartao - Seu Nome", NULL,
+  window = glfwCreateWindow(800, 600, "Exit 8", NULL,
                             NULL);
   if (!window) {
     glfwTerminate();
