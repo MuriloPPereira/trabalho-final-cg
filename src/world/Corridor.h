@@ -103,7 +103,7 @@ int GetPosterTextureIndex(int corridor_id, int poster_slot);
 CorridorState MakeCorridorState(int id);
 void RefreshCandidateCorridorStates();
 void ForceNextCorridorAnomaly(CorridorAnomalyType anomaly_type);
-void InitializeCorridorLifecycle();
+void InitializeCorridorLifecycle(glm::vec3 initial_forward = glm::vec3(0.0f, 0.0f, -1.0f));
 void PrepareCorridorTransition(int physical_side);
 void ActivateNewLogicalCorridor(int physical_side);
 CanonicalCorridorLayout GetCanonicalCorridorLayout();

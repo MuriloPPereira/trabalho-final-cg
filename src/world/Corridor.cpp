@@ -248,7 +248,7 @@ void ForceNextCorridorAnomaly(CorridorAnomalyType anomaly_type) {
   RefreshCandidateCorridorStates();
 }
 
-void InitializeCorridorLifecycle() {
+void InitializeCorridorLifecycle(glm::vec3 initial_forward) {
   g_CurrentExitLevel = 0;
   g_GameWon = false;
   g_CurrentCorridorSequenceId = 0;
@@ -264,7 +264,7 @@ void InitializeCorridorLifecycle() {
   tutorial_state.is_tutorial = true;
   tutorial_state.entrance_progress = -1;
   g_CurrentCorridorInstance = CreateCorridorInstanceFromState(
-      tutorial_state, glm::vec3(0.0f, 0.0f, -1.0f));
+      tutorial_state, initial_forward);
   RefreshCandidateCorridorStates();
 }
 
@@ -326,7 +326,11 @@ void ActivateNewLogicalCorridor(int physical_side) {
       // corridor lifecycle used after a pursuer catch. The transition system
       // will still recenter the player and activate entities for this freshly
       // initialized tutorial corridor after this function returns.
-      InitializeCorridorLifecycle();
+      glm::vec3 fallback_forward(0.0f, 0.0f, -1.0f);
+      if (physical_side < 0) {
+        fallback_forward = glm::vec3(0.0f, 0.0f, 1.0f);
+      }
+      InitializeCorridorLifecycle(fallback_forward);
       printf("\n--- INCORRECT -> REFERENCE CORRIDOR (EXIT LEVEL: %d) ---\n\n",
              g_CurrentExitLevel);
       fflush(stdout);
