@@ -4,6 +4,7 @@
 
 #include <array>
 #include <glm/vec2.hpp>
+#include <glm/vec3.hpp>
 
 constexpr int kCorridorWalkableSectionCount = 5;
 
@@ -51,5 +52,25 @@ CollisionResult UpdatePlayerCollision(
     float player_radius,
     const CanonicalCorridorLayout& layout,
     float kCorridorHalfWidth, float kCorridorZ1);
+
+bool IsPointInsideWalkableBox(const WalkableBox2D &box, const glm::vec2 &p);
+
+bool IsPointInsideStaticWalkable(const glm::vec2 &world_point, float radius,
+                                 const CanonicalCorridorLayout &layout);
+
+glm::vec2 ClampPointToStaticWalkable(const glm::vec2 &world_point, float radius,
+                                     const CanonicalCorridorLayout &layout);
+
+float FindVisibleThirdPersonBoomFraction(const glm::vec2 &target_ground,
+                                         const glm::vec2 &desired_ground,
+                                         float radius,
+                                         const CanonicalCorridorLayout &layout);
+
+bool ArePointsInSameWalkableSection(const glm::vec2 &a, const glm::vec2 &b,
+                                    const CanonicalCorridorLayout &layout);
+
+struct CamouflagedPursuerState;
+bool HasCamouflagedPursuerCaughtPlayer(const CamouflagedPursuerState &pursuer,
+                                       const glm::vec3 &player_position);
 
 #endif

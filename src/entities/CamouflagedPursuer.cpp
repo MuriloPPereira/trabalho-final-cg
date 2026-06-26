@@ -6,6 +6,7 @@
 #include "matrices.h"
 #include "utils/Bezier.h"
 #include "utils/Constants.h"
+#include "collisions.h"
 
 #include <algorithm>
 #include <array>
@@ -260,35 +261,6 @@ PathLocation ProjectOntoPath(const PursuerPath &path,
   return best;
 }
 
-bool InsideBox(const WalkableBox2D &box, const glm::vec2 &point) {
-  return point.x >= box.min_x && point.x <= box.max_x &&
-         point.y >= box.min_z && point.y <= box.max_z;
-}
-
-bool ShareWalkableSection(const PursuerPath &path, const glm::vec2 &a,
-                          const glm::vec2 &b) {
-  const CanonicalCorridorLayout layout = GetCanonicalCorridorLayout();
-  const std::array<WalkableBox2D, kCorridorWalkableSectionCount>
-      local_sections = GetCorridorWalkableSections(
-          layout, kCorridorHalfWidth, kCorridorZ1, 0.0f);
-
-  const float offset_length_squared = glm::dot(path.blockOffset,
-                                                path.blockOffset);
-  const glm::vec2 midpoint = 0.5f * (a + b);
-  const int estimated_block = static_cast<int>(std::floor(
-      glm::dot(midpoint, path.blockOffset) / offset_length_squared + 0.5f));
-  for (int block = estimated_block - 2; block <= estimated_block + 2;
-       ++block) {
-    const glm::vec2 offset = static_cast<float>(block) * path.blockOffset;
-    const glm::vec2 local_a = a - offset;
-    const glm::vec2 local_b = b - offset;
-    for (const WalkableBox2D &section : local_sections) {
-      if (InsideBox(section, local_a) && InsideBox(section, local_b))
-        return true;
-    }
-  }
-  return false;
-}
 
 PathLocation ChoosePathJoinLocation(
     const PursuerPath &path, const glm::vec2 &pursuer_position,
@@ -311,7 +283,7 @@ PathLocation ChoosePathJoinLocation(
         static_cast<float>(kPathJoinLookAheadSamples);
     const PathLocation candidate = EvaluatePath(
         path, nearest_path_location.progress + direction * sample_distance);
-    if (!ShareWalkableSection(path, pursuer_position, candidate.position))
+    if (!ArePointsInSameWalkableSection(pursuer_position, candidate.position, GetCanonicalCorridorLayout()))
       break;
     const float alignment =
         glm::dot(candidate.position - pursuer_position, to_player);
@@ -411,7 +383,7 @@ void UpdateCamouflagedPursuer(CamouflagedPursuerState &pursuer,
   const glm::vec2 pursuer_ground(pursuer.position.x, pursuer.position.z);
   const glm::vec2 player_ground(player_position.x, player_position.z);
 
-  if (ShareWalkableSection(path, pursuer_ground, player_ground)) {
+  if (ArePointsInSameWalkableSection(pursuer_ground, player_ground, GetCanonicalCorridorLayout())) {
     const float remaining_distance =
         distance_to_player - kCamouflagedPursuerStopDistance;
     const float movement_distance =
@@ -465,17 +437,6 @@ void UpdateCamouflagedPursuer(CamouflagedPursuerState &pursuer,
     UpdateSalarymanAnimation(*pursuer.animator, delta_time);
 }
 
-bool HasCamouflagedPursuerCaughtPlayer(
-    const CamouflagedPursuerState &pursuer,
-    const glm::vec3 &player_position) {
-  if (!pursuer.active || !pursuer.visible || !pursuer.chasing)
-    return false;
-
-  glm::vec3 to_player = player_position - pursuer.position;
-  to_player.y = 0.0f;
-  return glm::length(to_player) <=
-         kCamouflagedPursuerStopDistance + 0.001f;
-}
 
 void DrawCamouflagedPursuer(const CamouflagedPursuerState &pursuer,
                             const Material &material) {
